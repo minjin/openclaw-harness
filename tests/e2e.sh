@@ -34,7 +34,7 @@ grep -q CONDUCTOR-RULES-V1 "$HOME/.codex/AGENTS.md" || fail "codex rules not wir
 grep -q CONDUCTOR-RULES-V1 "$HOME/.gemini/GEMINI.md" || fail "gemini rules not wired"
 C setup >/dev/null   # idempotent
 [ "$(grep -c 'conductor:begin' "$HOME/.codex/AGENTS.md")" = 1 ] || fail "setup not idempotent"
-[ "$(stat -f %Lp "$CONDUCTOR_HOME/.env" 2>/dev/null || stat -c %a "$CONDUCTOR_HOME/.env")" = 600 ] || fail ".env not 600"
+[ "$(stat -c %a "$CONDUCTOR_HOME/.env" 2>/dev/null || stat -f %Lp "$CONDUCTOR_HOME/.env")" = 600 ] || fail ".env not 600"
 pass "setup wires rules idempotently"
 
 [ "$(C doctor --deep | field '["ok"]')" = "True" ] || { C doctor --deep; fail "doctor"; }

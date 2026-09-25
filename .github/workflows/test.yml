@@ -3,14 +3,19 @@ on: [push, pull_request]
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            python: "3.9"   # minimum supported version
+          - os: macos-latest
+            python: "3.x"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
+          python-version: ${{ matrix.python }}
       - run: python3 tests/test_deep_research.py
       - run: bash tests/e2e.sh
       - run: python3 tests/test_install_roundtrip.py
