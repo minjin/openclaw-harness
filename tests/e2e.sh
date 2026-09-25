@@ -49,6 +49,13 @@ C run "$J" >/dev/null 2>&1 && fail "ran an unconfirmed job"
 C set "$J" --set nosuchslot=1 >/dev/null 2>&1 && fail "accepted unknown slot"
 pass "brief gates enforced"
 
+# --- two jobs with the same title in the same second get distinct ids
+A1=$(C new --pipeline second_opinion --title same --set question=q | field '["job"]')
+A2=$(C new --pipeline second_opinion --title same --set question=q | field '["job"]')
+A3=$(C new --pipeline second_opinion --title same --set question=q | field '["job"]')
+[ "$A1" != "$A2" ] && [ "$A2" != "$A3" ] && [ "$A1" != "$A3" ] || fail "job id collision: $A1 $A2 $A3"
+pass "unique job ids for same title within one second"
+
 # --- deep_research is opt-in: selecting it without a key is shown in the brief
 JD=$(C new --pipeline research_only --set question=q --set purpose=p --set research_engine=deep_research | field '["job"]')
 case "$(C render "$JD")" in *"未配置 GEMINI_API_KEY"*) ;; *) fail "brief should warn about missing key";; esac

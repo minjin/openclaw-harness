@@ -1031,9 +1031,17 @@ def cmd_pipelines(a):
 def cmd_new(a):
     pdef = pipeline_def(a.pipeline)
     ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    job_id = "%s-%s" % (ts, slugify(a.title or a.pipeline))
-    d = os.path.join(JOBS, job_id)
-    os.makedirs(d)
+    base_id = "%s-%s" % (ts, slugify(a.title or a.pipeline))
+    job_id, n = base_id, 1
+    os.makedirs(JOBS, exist_ok=True)
+    while True:  # two jobs with the same title in the same second must not collide
+        d = os.path.join(JOBS, job_id)
+        try:
+            os.makedirs(d)
+            break
+        except FileExistsError:
+            n += 1
+            job_id = "%s-%d" % (base_id, n)
     job = {"id": job_id, "pipeline": a.pipeline, "title": a.title or "", "state": "draft",
            "slots": {}, "answers": [], "steps": {}, "created": now()}
     apply_sets(job, pdef, a.set)
