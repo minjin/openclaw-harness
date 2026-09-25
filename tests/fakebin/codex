@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+# Fake Codex CLI: `codex exec ... -o FILE -` and `codex login status`.
+import sys
+a = sys.argv[1:]
+if a[:2] == ["login", "status"]:
+    print("Logged in using ChatGPT"); sys.exit(0)
+if a and a[0] == "--version":
+    print("codex-cli 9.9.9"); sys.exit(0)
+prompt = sys.stdin.read() if a[-1] == "-" else a[-1]
+text = "CONDUCTOR-RULES-V1" if "Conductor rules marker" in prompt and "本步骤任务" not in prompt else "未发现阻断问题。" + "审查细节 " * 60
+if "-o" in a:
+    open(a[a.index("-o") + 1], "w").write(text)
+else:
+    print(text)

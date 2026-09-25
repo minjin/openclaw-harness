@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+# Fake Claude Code for tests: emulates `claude -p ... --output-format json` and `claude auth status`.
+import json, os, subprocess, sys
+a = sys.argv[1:]
+if a[:2] == ["auth", "status"]:
+    print('{"loggedIn": true}'); sys.exit(0)
+if a and a[0] == "--version":
+    print("9.9.9 (Claude Code)"); sys.exit(0)
+prompt = a[a.index("-p") + 1]
+mode = a[a.index("--permission-mode") + 1] if "--permission-mode" in a else "default"
+flag = os.path.join(os.environ["HOME"], "block_once")
+if "Conductor rules marker" in prompt and "本步骤任务" not in prompt:
+    text = "CONDUCTOR-RULES-V1"
+elif "git commit" in prompt and mode == "acceptEdits" and os.path.exists(flag):
+    os.remove(flag); text = "BLOCKED: 要用 Python 还是 Go？"
+elif mode == "acceptEdits" and "staged/" in prompt:
+    os.makedirs("staged", exist_ok=True)
+    open("staged/note-a.md", "w").write("---\ntitle: Note A\nsource: x\n---\n\nbody\n")
+    text = "生成了 note-a.md：测试笔记。" * 5
+elif mode == "acceptEdits":
+    open("hello.txt", "w").write("hi\n")
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "add", "."], check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "impl"], check=True)
+    text = "实现完成。" * 60
+elif "经验" in prompt and "最多 5 条" in prompt:
+    text = "- [测试] 假 CLI 能跑通流水线（依据：tests）"
+else:
+    text = "结论：" + "内容 " * 200
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": text}, ensure_ascii=False))

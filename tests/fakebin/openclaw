@@ -1,0 +1,3 @@
+#!/bin/sh
+# Fake openclaw: record notifications.
+echo "$@" >> "$HOME/notify.log"

@@ -1,0 +1,17 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - run: python3 tests/test_deep_research.py
+      - run: bash tests/e2e.sh
+      - run: python3 tests/test_install_roundtrip.py
+      - run: python3 tools/build_install.py --check
