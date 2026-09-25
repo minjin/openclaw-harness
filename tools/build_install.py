@@ -10,7 +10,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPO = os.environ.get("CONDUCTOR_REPO", "OWNER/openclaw-conductor")
+REPO = os.environ.get("CONDUCTOR_REPO", "minjin/openclaw-harness")
 FILES = [
     "SKILL.md",
     "pipelines.json",

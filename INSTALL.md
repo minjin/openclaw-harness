@@ -119,7 +119,7 @@ chmod +x ~/.openclaw/skills/conductor/scripts/conductor.py
 **方式 B：从 GitHub 安装（仓库地址见附录开头；如果还没发布，就用方式 A）**
 
 ```bash
-openclaw skills install git:OWNER/openclaw-conductor --global
+openclaw skills install git:minjin/openclaw-harness --global
 ```
 
 **验证：**
@@ -292,7 +292,7 @@ gateway 重启完成后，运行 `openclaw memory index --force`，再用 `openc
 
 下面每个标题都是文件相对 `~/.openclaw/skills/conductor/` 的路径，内容在紧随其后的 `~~~~~` 围栏里。写文件时要**逐字**写入，不能改动任何内容。
 
-- 项目仓库：`https://github.com/OWNER/openclaw-conductor`
+- 项目仓库：`https://github.com/minjin/openclaw-harness`
 - 这些文件由构建脚本从仓库自动生成，与仓库里的源码一致。
 
 ### `SKILL.md`

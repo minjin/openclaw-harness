@@ -1,4 +1,4 @@
-# Conductor — OpenClaw 多 Agent 编排 Skill
+# openclaw-harness · Conductor —— OpenClaw 多 Agent 编排 Skill
 
 你在聊天里跟 OpenClaw 说需求，它先问清楚、写成任务简报，**等你确认后**再按固定流水线把活派给本机的 **Gemini CLI**（研究）、**Claude Code**（实现）和 **Codex**（审查）。任务在后台执行，完成、受阻或失败时会主动通知你。所有 agent 共用同一个**外脑**：知识库、经验记忆和一份统一的规则文件。
 
@@ -43,7 +43,7 @@ conductor.py（确定性流水线，后台运行）
 **手动安装：**
 
 ```bash
-openclaw skills install git:OWNER/openclaw-conductor --global
+openclaw skills install git:minjin/openclaw-harness --global
 python3 ~/.openclaw/skills/conductor/scripts/conductor.py setup --notify-channel telegram --notify-target <chat_id>
 python3 ~/.openclaw/skills/conductor/scripts/conductor.py doctor --deep
 ```
@@ -117,7 +117,7 @@ bash tests/e2e.sh                     # 用假 CLI 跑全部流水线（使用�
 python3 tools/build_install.py        # 修改任何 skill 文件后，重新生成 INSTALL.md
 ```
 
-发布前设置 `CONDUCTOR_REPO=<你的用户名>/openclaw-conductor` 再运行 `build_install.py`，INSTALL.md 里的仓库地址就会指向你的仓库。
+Fork 后发布时，设置 `CONDUCTOR_REPO=<你的用户名>/<仓库名>` 再运行 `build_install.py`，INSTALL.md 里的仓库地址就会指向你的仓库。
 
 ## License
 
