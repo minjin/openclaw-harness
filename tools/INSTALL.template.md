@@ -25,6 +25,8 @@ Conductor 版本：{{VERSION}}
 5. **命令和本机版本对不上时**（报「未知参数」之类的错），先运行 `<命令> --help` 核对用法，调整后再执行，并告诉用户你改了什么。
 6. **可以重复执行。** 所有步骤都是幂等的，中断后从出错的阶段重新开始即可。
 7. **登录类操作要在用户自己的终端里完成**（需要浏览器或交互）。你只负责给出命令，等用户回复「好了」，再做验证。
+8. **发现 Conductor 本身的缺陷时**：先止损（撤销已经产生的副作用），再告诉用户。然后把现象和建议的修法写进 `~/conductor/INSTALL-ISSUES.md`，方便反馈给项目。**不要改写 skill 代码**，否则安装结果就无法复现，以后也没法正常升级。
+9. **本机已经有别的 agent 系统时**（比如 root 下已经跑着其他 agent、网关或记忆系统），默认推荐 `--no-wire`，并在修改任何全局配置之前说明它可能带来的影响。
 
 ---
 
@@ -36,12 +38,14 @@ Conductor 版本：{{VERSION}}
 |---|---|---|
 | agents | 要启用哪些执行 agent？（多选） | Claude Code (Recommended) / Codex / Gemini CLI |
 | notify | 任务完成后把通知发到哪里？ | 当前这个聊天 (Recommended) / 暂不通知 |
+
+> 通知走 `openclaw message send`，**只支持外部渠道**（Telegram、Slack、Discord 等）。如果用户是在 TUI 或 Web 控制台里跟你对话，这些界面收不到推送：请推荐「暂不通知」，并告诉用户任务状态可以随时问你。
 | language | 产出默认用什么语言？ | 中文 (Recommended) / English |
 
 补充说明：
 
 - **研究步骤默认由 Gemini CLI 执行**。如果用户没选 Gemini CLI，要告诉他：研究类流水线需要 Gemini CLI，或者后面配置 Deep Research API key。
-- **选了「当前这个聊天」时**，从当前会话上下文里确定渠道名和目标 ID（比如 Telegram 的 chat id）。如果无法确定，请用户提供，或者先跳过，以后再用 `setup --notify-channel ... --notify-target ...` 补上。
+- **选了「当前这个聊天」时**，从当前会话上下文里确定渠道名和目标 ID（比如 Telegram 的 chat id），然后用 `openclaw message send --channel <渠道> --target <ID> --message test` 发一条测试消息，确认能送达。如果无法确定，请用户提供，或者先跳过，以后再用 `setup --notify-channel ... --notify-target ...` 补上。
 - **再用一句话问用户的称呼和常用技术栈**（可以跳过），这些信息会写进共享规则的「用户偏好」小节。
 
 ---
@@ -147,7 +151,9 @@ python3 <SKILL>/scripts/conductor.py pipelines   # 应输出 5 条流水线
 python3 <SKILL>/scripts/conductor.py sync-rules
 ```
 
-**验证**：`setup` 输出 `"ok": true`；`~/conductor/brain/index.md` 已经存在。
+`--no-wire` 会记录在 `config.json` 里（`wire_rules: false`），之后的 `sync-rules` 和所有任务都不会再写这三个文件；流水线改为在每一步的提示词里直接内联共享规则。
+
+**验证**：`setup` 输出 `"ok": true`；`~/conductor/brain/index.md` 已经存在。如果选了 `--no-wire`，要确认上面三个全局文件没有 `conductor:begin` 区块。
 
 ---
 
@@ -169,19 +175,9 @@ read -rs -p "GEMINI_API_KEY: " K && printf 'GEMINI_API_KEY=%s\n' "$K" > ~/conduc
 
 ---
 
-## 8. 配置 OpenClaw
+## 8. 配置 OpenClaw 工具权限
 
-**1. 让 OpenClaw 的记忆检索覆盖外脑。** 先查看现有配置，再合并，不要覆盖用户已有的路径：
-
-```bash
-openclaw config get memory.search.extraPaths
-openclaw config set memory.search.extraPaths '["<HOME绝对路径>/conductor/brain"]' --strict-json   # 如果已有其它路径，一并写进这个数组
-openclaw memory index --force
-```
-
-路径必须写**真实的绝对路径**：OpenClaw 建索引时会跳过符号链接。
-
-**2. 确认 conductor 能用到它需要的工具。** 它需要 `exec`（运行脚本）和 `ask_user`（结构化提问）。
+确认 conductor 能用到它需要的工具：`exec`（运行脚本）和 `ask_user`（结构化提问）。
 
 ```bash
 openclaw config get tools.profile
@@ -192,10 +188,11 @@ openclaw exec-policy show
   - 把这条命令加入 exec 的允许列表（allowlist）。具体语法以 `openclaw exec-policy --help` 和 `openclaw approvals --help` 为准；
   - 在 `tools.alsoAllow` 中加入 `exec`。
 - **不要**为了省事把工具权限整体切到 `full`。
-
-**3. 可选：审计。** 运行 `openclaw security audit`，把结果里的高危项告诉用户。
+- 可选：运行 `openclaw security audit`，把结果里的高危项告诉用户。
 
 说明：conductor 通过各个 CLI 的无头模式直接调用它们，**不需要** ACP 或 acpx 插件。
+
+**注意**：外脑接入 OpenClaw 记忆检索（`memory.search.extraPaths`）放在**最后一个阶段**。修改这项配置会让 gateway 重启，正在进行的这轮对话（也就是安装本身）会被中断。
 
 ---
 
@@ -207,14 +204,16 @@ python3 <SKILL>/scripts/conductor.py doctor --deep
 
 `--deep` 会让每个 CLI 实际回答一次，确认它们都读到了共享规则。所有 `fail` 项都要按输出里的 `fix` 提示处理完；`warn` 项告诉用户即可。
 
-然后做一次**完整的冒烟测试**，把第 2 到第 4 节的对话流程走一遍（便宜又快，不花 Deep Research 的钱）：
+然后做一次**完整的冒烟测试**，把 skill 第 2 到第 4 节的对话流程走一遍（便宜又快，不花 Deep Research 的钱）。
+
+如果 `live:gemini` 失败（比如免费额度用完，报 429），就改用 `build_review`：先建一个一次性仓库（`git init` + 一个小文件），然后让 Claude 做一个极小的改动，由 Codex 审查。完成后要告诉用户，Gemini 那条测试是没跑的。
 
 1. `new --pipeline second_opinion --title smoke --set question="用一句话说明什么是 CRDT"`
 2. `render`，把简报给用户看，用 `ask_user` 请他确认
 3. `confirm`，然后 `run`
 4. 等待完成通知送达聊天。一般 1 到 3 分钟。
 
-   **不要循环轮询。** 如果 5 分钟后还没收到通知，运行一次 `status` 查看状态。
+   **不要循环轮询。** 如果 5 分钟后还没收到通知，或者没配置通知，就运行一次 `status` 查看状态。任务日志 `log.txt` 里会记录通知是否发出，以及没发出的原因。
 5. 用 `result` 查看结果，确认里面有 Claude 和 Gemini 两方观点的对比。
 
 通知没有送达时，检查 `~/conductor/config.json` 里的 `notify` 配置，并手动试一下：
@@ -269,6 +268,23 @@ rm -rf ~/.openclaw/skills/conductor           # 删除 skill
 # 外脑和历史任务在 ~/conductor；需要的话自行备份，再删除
 # 如果改过 memory.search.extraPaths，从里面去掉 brain 路径
 ```
+
+---
+
+## 11. 最后一步：外脑接入 OpenClaw 记忆检索
+
+先告诉用户：「最后一步会修改 OpenClaw 配置，gateway 会重启，我们这轮对话会中断几秒钟。重启后如果我没有自动接上，你说一声『继续』就好。」
+
+然后执行下面的命令。先查看现有配置再合并，不要覆盖用户已有的路径：
+
+```bash
+openclaw config get memory.search.extraPaths
+openclaw config set memory.search.extraPaths '["<HOME绝对路径>/conductor/brain"]' --strict-json   # 如果已有其它路径，一并写进这个数组
+```
+
+路径必须写**真实的绝对路径**：OpenClaw 建索引时会跳过符号链接。
+
+gateway 重启完成后，运行 `openclaw memory index --force`，再用 `openclaw memory search "外脑"` 确认能搜到 `brain/index.md`。
 
 ---
 

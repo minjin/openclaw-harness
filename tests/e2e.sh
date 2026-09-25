@@ -86,6 +86,34 @@ grep -q "Python" "$CONDUCTOR_HOME/jobs/$J2/brief.md" || fail "answer not in brie
 [ -s "$CONDUCTOR_HOME/jobs/$J2/review.md" ] || fail "no review"
 pass "research_then_build: worktree branch, blocked→answer→resume, review"
 
+# --- Claude gets read-only access via Read(//...) rules, never --add-dir; rules are inlined
+python3 - "$HOME/claude_calls.jsonl" "$CONDUCTOR_HOME" <<'PY' || fail "claude invocation contract"
+import json, sys
+calls = [json.loads(l) for l in open(sys.argv[1]) if "--allowedTools" in l]
+home = sys.argv[2]
+assert calls, "no pipeline calls recorded"
+for c in calls:
+    a = c["argv"]
+    assert "--add-dir" not in a, a
+    tools = a[a.index("--allowedTools") + 1:]
+    assert "Read(/%s/brain/**)" % home in tools, tools
+    assert "Read(/%s/AGENTS.md)" % home in tools, tools
+    assert "<shared-rules>" in a[a.index("-p") + 1] and "CONDUCTOR-RULES-V1" in a[a.index("-p") + 1]
+build = [c for c in calls if "acceptEdits" in c["argv"] and c["cwd"].endswith("/work")]
+assert build and all("Bash(git commit*)" in c["argv"] for c in build), "build tools missing"
+PY
+pass "claude: read-only rules, no --add-dir, shared rules inlined"
+
+python3 -c "
+import importlib.util, os, subprocess, tempfile
+spec = importlib.util.spec_from_file_location('c', '$RUNNER'); c = importlib.util.module_from_spec(spec); spec.loader.exec_module(c)
+d = tempfile.mkdtemp(); subprocess.run(['git', 'init', '-q', d])
+assert c.agent_env(d)['GIT_AUTHOR_EMAIL'] == 'conductor@localhost'
+subprocess.run(['git', '-C', d, 'config', 'user.email', 'me@x'])
+assert 'GIT_AUTHOR_EMAIL' not in c.agent_env(d) or os.environ.get('GIT_AUTHOR_EMAIL')
+" || fail "git identity fallback"
+pass "git identity fallback only when none is configured"
+
 # --- reviewer=none skips codex
 J3=$(C new --pipeline build_review --set goal=g --set target=new --set acceptance=a --set reviewer=none | field '["job"]')
 C render "$J3" >/dev/null; C confirm "$J3" >/dev/null; C run "$J3" >/dev/null
@@ -117,10 +145,27 @@ wait_state "$J5" failed
 grep -q "产物过短" "$CONDUCTOR_HOME/jobs/$J5/job.json" || fail "empty output not caught"
 pass "empty artifact with exit 0 is a failure"
 
+# --- --no-wire is remembered: sync-rules and job runs must not touch global files
+H2="$TMP/home2"; mkdir -p "$H2"
+( export HOME="$H2" CONDUCTOR_HOME="$H2/conductor"
+  C setup --no-wire >/dev/null
+  C sync-rules >/dev/null
+  JN=$(C new --pipeline second_opinion --set question=q | field '["job"]')
+  C render "$JN" >/dev/null; C confirm "$JN" >/dev/null; C run "$JN" >/dev/null
+  wait_state "$JN" done
+  [ ! -e "$H2/.claude/CLAUDE.md" ] && [ ! -e "$H2/.codex/AGENTS.md" ] && [ ! -e "$H2/.gemini/GEMINI.md" ] \
+    || fail "--no-wire was not respected"
+  [ "$(C doctor --deep | field '["ok"]')" = "True" ] || fail "doctor --deep should pass with --no-wire"
+  grep -q "未配置通知渠道" "$H2/conductor/jobs/$JN/log.txt" || fail "skipped notification not logged" )
+pass "--no-wire remembered across sync-rules and job runs"
+
 # --- unwire removes only our blocks
 C unwire >/dev/null
 [ "$(cat "$HOME/.codex/AGENTS.md")" = "# my own rules" ] || fail "unwire damaged user's own rules"
-! grep -q conductor:begin "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.gemini/GEMINI.md" || fail "unwire left blocks"
+[ ! -e "$HOME/.claude/CLAUDE.md" ] || fail "unwire left a file conductor created"
+C sync-rules >/dev/null
+! grep -q conductor:begin "$HOME/.codex/AGENTS.md" || fail "sync-rules re-wired after unwire"
+! grep -qs conductor:begin "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.gemini/GEMINI.md" || fail "unwire left blocks"
 pass "unwire"
 
 echo "all tests passed"

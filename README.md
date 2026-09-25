@@ -97,7 +97,7 @@ $C new --pipeline P --set k=v ...  → $C set / render / confirm / run
 $C status <job> | list | result <job> [--file report.md] | cancel <job>
 $C answer <job> "..." && $C run <job> --resume      # 回答受阻任务的问题后继续执行
 $C promote <job> --lessons | --report | --knowledge  # 你确认后才写入外脑
-$C sync-rules | unwire      # 同步共享规则 / 卸载规则接线
+$C sync-rules | unwire      # 同步共享规则 / 卸载规则接线（setup --no-wire / --wire 控制是否写 CLI 全局规则文件）
 ```
 
 ## 安全说明

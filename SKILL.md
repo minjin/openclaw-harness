@@ -93,7 +93,7 @@ After the job finishes, show the list of generated notes and promote with `--kno
 | Command | What it does |
 |---|---|
 | `$C doctor` | Checks installs, logins and rule wiring. Add `--deep` for a live test of each CLI. |
-| `$C sync-rules` | Run after the user edits `~/conductor/AGENTS.md`, the shared rules for every agent. |
+| `$C sync-rules` | Run after the user edits `~/conductor/AGENTS.md`, the shared rules for every agent. If the install used `--no-wire`, this writes nothing, because pipelines inline the rules into every step prompt. Only run `$C setup --wire` if the user asks to wire the rules into the CLIs' global files. |
 | `$C pipelines` | Lists the pipelines and their slots. |
 
 ## Research engine (optional Deep Research)
