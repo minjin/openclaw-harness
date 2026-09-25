@@ -3,8 +3,8 @@
 <!-- Conductor rules marker: CONDUCTOR-RULES-V1 -->
 Conductor rules marker: CONDUCTOR-RULES-V1
 
-这是所有 agent（OpenClaw、Claude Code、Codex、Gemini CLI）共享的**唯一规则源**，
-路径 `{conductor_home}/AGENTS.md`。修改后运行 `conductor.py sync-rules` 同步给 Codex 与 Gemini
+这是所有 agent（OpenClaw、Claude Code、Codex，以及可选的 Antigravity / Gemini CLI）共享的**唯一规则源**，
+路径 `{conductor_home}/AGENTS.md`。修改后运行 `conductor.py sync-rules` 同步给 Codex（以及已安装的 Antigravity / Gemini CLI）
 （Claude Code 通过 @import 实时读取；每次流水线启动时也会自动同步）。
 
 ## 外脑（共享知识与记忆）

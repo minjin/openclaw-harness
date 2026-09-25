@@ -31,7 +31,7 @@ mkdir -p "$HOME/.codex"; echo "# my own rules" > "$HOME/.codex/AGENTS.md"
 C setup --notify-channel telegram --notify-target 42 >/dev/null
 grep -q "@$CONDUCTOR_HOME/AGENTS.md" "$HOME/.claude/CLAUDE.md" || fail "claude import not wired"
 grep -q CONDUCTOR-RULES-V1 "$HOME/.codex/AGENTS.md" || fail "codex rules not wired"
-grep -q CONDUCTOR-RULES-V1 "$HOME/.gemini/GEMINI.md" || fail "gemini rules not wired"
+grep -q CONDUCTOR-RULES-V1 "$HOME/.gemini/GEMINI.md" || fail "antigravity rules (~/.gemini/GEMINI.md) not wired"
 C setup >/dev/null   # idempotent
 [ "$(grep -c 'conductor:begin' "$HOME/.codex/AGENTS.md")" = 1 ] || fail "setup not idempotent"
 [ "$(stat -c %a "$CONDUCTOR_HOME/.env" 2>/dev/null || stat -f %Lp "$CONDUCTOR_HOME/.env")" = 600 ] || fail ".env not 600"
@@ -54,8 +54,8 @@ JD=$(C new --pipeline research_only --set question=q --set purpose=p --set resea
 case "$(C render "$JD")" in *"未配置 GEMINI_API_KEY"*) ;; *) fail "brief should warn about missing key";; esac
 pass "deep_research is optional and warns without a key"
 
-# --- research_only (lite mode: no GEMINI_API_KEY)
-case "$(C render "$J")" in *"Gemini CLI（联网研究）"*) ;; *) fail "brief should default to Gemini CLI research";; esac
+# --- research_only (default engine: Claude, a core agent)
+case "$(C render "$J")" in *"Claude Code（联网研究）"*) ;; *) fail "brief should default to Claude research";; esac
 C confirm "$J" >/dev/null
 C run "$J" >/dev/null
 wait_state "$J" done
@@ -132,18 +132,78 @@ ls "$CONDUCTOR_HOME"/brain/knowledge/*/note-a.md >/dev/null || fail "note not pr
 grep -q "Note A" "$CONDUCTOR_HOME/brain/index.md" || fail "index not updated"
 pass "ingest + promote --knowledge"
 
-# --- failure path: artifact verification catches an empty result even with exit 0
-J5=$(C new --pipeline second_opinion --set question=q | field '["job"]')
+# --- failure path: agy reporting SUCCESS with an empty response (known agy bug) is still a failure
+J5=$(C new --pipeline second_opinion --set question=q --set second_agent=antigravity | field '["job"]')
 C render "$J5" >/dev/null; C confirm "$J5" >/dev/null
-cat > "$TMP/gemini" <<'EOF'
+mkdir -p "$TMP/emptybin"; cat > "$TMP/emptybin/agy" <<'EOF'
 #!/bin/sh
-echo '{"response": ""}'
+echo '{"conversation_id":"c","status":"SUCCESS","response":"","error":""}'
 EOF
-chmod +x "$TMP/gemini"
-PATH="$TMP:$PATH" C run "$J5" >/dev/null
+chmod +x "$TMP/emptybin/agy"
+PATH="$TMP/emptybin:$PATH" C run "$J5" >/dev/null
 wait_state "$J5" failed
 grep -q "产物过短" "$CONDUCTOR_HOME/jobs/$J5/job.json" || fail "empty output not caught"
-pass "empty artifact with exit 0 is a failure"
+pass "empty artifact with exit 0 / status SUCCESS is a failure"
+
+# --- agy not logged in: clear error pointing at the fix
+J6=$(C new --pipeline second_opinion --set question=q --set second_agent=antigravity | field '["job"]')
+C render "$J6" >/dev/null; C confirm "$J6" >/dev/null
+FAKE_AGY_UNAUTH=1 C run "$J6" >/dev/null
+wait_state "$J6" failed
+grep -q "在终端运行 agy" "$CONDUCTOR_HOME/jobs/$J6/job.json" || fail "agy auth failure not explained"
+pass "agy auth failure is reported with the login hint"
+
+# --- agy invocation contract + legacy "gemini" names still work
+python3 - "$HOME/agy_calls.jsonl" <<'PY' || fail "agy invocation contract"
+import json, sys
+calls = [json.loads(l) for l in open(sys.argv[1]) if '"-p"' in l]
+assert calls, "no agy calls"
+for c in calls:
+    a = c["argv"]
+    assert a[a.index("--output-format") + 1] == "json", a
+    assert c["no_update"] == "true", "auto-update must be disabled"
+    assert "--dangerously-skip-permissions" not in a, a
+    assert "--mode" not in a or a[a.index("--mode") + 1] == "accept-edits", a
+PY
+pass "agy flags (json, no auto-update, no skip-permissions)"
+
+# --- optional engines/agents still work when chosen
+for ENG in antigravity gemini; do
+  JE=$(C new --pipeline research_only --set question=q --set purpose=p --set research_engine=$ENG | field '["job"]')
+  C render "$JE" >/dev/null; C confirm "$JE" >/dev/null; C run "$JE" >/dev/null
+  wait_state "$JE" done
+done
+JS=$(C new --pipeline second_opinion --set question=q --set second_agent=antigravity | field '["job"]')
+case "$(C render "$JS")" in *"answer_second** → Antigravity CLI"*) ;; *) fail "second_agent=antigravity not shown";; esac
+C confirm "$JS" >/dev/null; C run "$JS" >/dev/null; wait_state "$JS" done
+pass "optional research engines (antigravity, gemini) and second_agent=antigravity"
+
+# --- core only: with just Claude + Codex installed everything works and ~/.gemini is never touched
+CORE="$TMP/corebin"; mkdir -p "$CORE"
+for b in claude codex openclaw; do ln -s "$ROOT/tests/fakebin/$b" "$CORE/$b"; done
+H3="$TMP/home3"; mkdir -p "$H3"
+( export HOME="$H3" CONDUCTOR_HOME="$H3/conductor"
+  export PATH="$CORE:$(dirname "$(command -v python3)"):$(dirname "$(command -v git)"):/usr/bin:/bin"
+  ! command -v agy >/dev/null && ! command -v gemini >/dev/null || fail "core-only PATH still has agy/gemini"
+  C setup >/dev/null
+  [ ! -e "$H3/.gemini" ] || fail "setup touched ~/.gemini without any Google agent installed"
+  [ "$(C doctor --deep | field '["ok"]')" = "True" ] || { C doctor --deep; fail "doctor should pass with only claude+codex"; }
+  JR=$(C new --pipeline research_only --set question=q --set purpose=p | field '["job"]')
+  C render "$JR" >/dev/null; C confirm "$JR" >/dev/null; C run "$JR" >/dev/null; wait_state "$JR" done
+  python3 - "$H3/claude_calls.jsonl" <<'PY' || fail "claude research tools"
+import json, sys
+calls = [json.loads(l)["argv"] for l in open(sys.argv[1])]
+research = [a for a in calls if "WebSearch" in a]
+assert research and all("WebFetch" in a for a in research), "claude research must get WebSearch+WebFetch"
+PY
+  JO=$(C new --pipeline second_opinion --set question=q | field '["job"]')
+  case "$(C render "$JO")" in *"answer_second** → Codex"*) ;; *) fail "second_opinion should default to Codex";; esac
+  C confirm "$JO" >/dev/null; C run "$JO" >/dev/null; wait_state "$JO" done
+  JX=$(C new --pipeline second_opinion --set question=q --set second_agent=antigravity | field '["job"]')
+  case "$(C render "$JX")" in *"未安装 agy"*) ;; *) fail "missing optional agent not flagged in brief";; esac
+  C confirm "$JX" >/dev/null; C run "$JX" >/dev/null; wait_state "$JX" failed
+  grep -q "可选组件 agy" "$H3/conductor/jobs/$JX/job.json" || fail "missing optional agent error unclear" )
+pass "core only (claude+codex): doctor ok, research via Claude, second_opinion via Codex, no ~/.gemini"
 
 # --- --no-wire is remembered: sync-rules and job runs must not touch global files
 H2="$TMP/home2"; mkdir -p "$H2"

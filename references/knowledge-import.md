@@ -1,6 +1,6 @@
 # 导入外部知识
 
-外脑是 `~/conductor/brain/` 下的一个纯 Markdown 目录。OpenClaw、Claude Code、Codex、Gemini CLI 都从这里读取知识。按资料的类型和数量，选下面一种方式导入。
+外脑是 `~/conductor/brain/` 下的一个纯 Markdown 目录。OpenClaw、Claude Code、Codex、Antigravity CLI 都从这里读取知识。按资料的类型和数量，选下面一种方式导入。
 
 | 你手上的资料 | 推荐方式 | 要不要审核 |
 |---|---|---|
@@ -52,7 +52,7 @@ qmd embed                             # 首次运行会下载约 2GB 的本地�
 ```bash
 claude mcp add --scope user qmd -- qmd mcp
 codex mcp add qmd -- qmd mcp
-# Gemini：在 ~/.gemini/settings.json 里加 "mcpServers": {"qmd": {"command": "qmd", "args": ["mcp"]}}
+agy mcp add qmd qmd mcp
 ```
 
 笔记有更新后，运行 `qmd update` 刷新索引。

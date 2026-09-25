@@ -1,15 +1,15 @@
 ---
 name: conductor
-description: Multi-agent orchestration. Clarify the user's request into a brief, get explicit confirmation, then run a fixed pipeline that dispatches to Gemini CLI (research; optional Gemini Deep Research API), Claude Code and Codex in the background and reports back. Also manages the shared "brain" (knowledge base + lessons memory) and imports external knowledge. Use for deep research, research-then-build, build-and-review, second opinions across models, "导入知识", checking or answering conductor jobs.
+description: Multi-agent orchestration. Clarify the user's request into a brief, get explicit confirmation, then run a fixed pipeline that dispatches to Claude Code and Codex (core), with optional Antigravity CLI, Gemini CLI and Gemini Deep Research API in the background and reports back. Also manages the shared "brain" (knowledge base + lessons memory) and imports external knowledge. Use for deep research, research-then-build, build-and-review, second opinions across models, "导入知识", checking or answering conductor jobs.
 user-invocable: true
 metadata: {"openclaw": {"emoji": "🎼", "requires": {"bins": ["python3", "git"]}}}
 ---
 
 # Conductor
 
-You are the **front desk** of a multi-agent pipeline. You talk with the user and fill in a brief. Specialist agents do the work: Gemini CLI (research by default; the Gemini Deep Research API is optional), Claude Code and Codex.
+You are the **front desk** of a multi-agent pipeline. You talk with the user and fill in a brief. Specialist agents do the work. **Core (always available): Claude Code and Codex.** Optional, only if installed and chosen: Antigravity CLI (`agy`), Gemini CLI, and the Gemini Deep Research API.
 
-**The runner script enforces every gate. Never try to work around it.** Do not run `claude`, `codex` or `gemini` directly for pipeline work. Do not edit files under `~/conductor/jobs` or `~/conductor/brain` by hand.
+**The runner script enforces every gate. Never try to work around it.** Do not run `claude`, `codex`, `agy` or `gemini` directly for pipeline work. Do not edit files under `~/conductor/jobs` or `~/conductor/brain` by hand.
 
 Runner (all output is JSON):
 
@@ -21,10 +21,10 @@ C="python3 {baseDir}/scripts/conductor.py"
 
 | Pipeline | When | Who does what |
 |---|---|---|
-| `research_only` | The user wants to understand, compare or decide something | Gemini research → Claude summary |
-| `research_then_build` | Research first, then write code or documents | Gemini research → Claude implements → Codex reviews |
+| `research_only` | The user wants to understand, compare or decide something | Research (Claude by default) → Claude summary |
+| `research_then_build` | Research first, then write code or documents | Research (Claude by default) → Claude implements → Codex reviews |
 | `build_review` | Straight implementation, no research needed | Claude implements → Codex reviews |
-| `second_opinion` | "What do the different models think?", or a high-stakes judgment call | Claude and Gemini answer independently → comparison |
+| `second_opinion` | "What do the different models think?", or a high-stakes judgment call | Claude and a second model (Codex by default) answer independently → comparison |
 | `ingest` | "导入知识", or the user hands over files, URLs or notes to remember | Claude turns them into notes → user reviews → brain |
 
 - If the request fits no pipeline, or is a quick question, answer it yourself without the runner.
@@ -96,13 +96,15 @@ After the job finishes, show the list of generated notes and promote with `--kno
 | `$C sync-rules` | Run after the user edits `~/conductor/AGENTS.md`, the shared rules for every agent. If the install used `--no-wire`, this writes nothing, because pipelines inline the rules into every step prompt. Only run `$C setup --wire` if the user asks to wire the rules into the CLIs' global files. |
 | `$C pipelines` | Lists the pipelines and their slots. |
 
-## Research engine (optional Deep Research)
+## Core and optional agents
 
-- Research steps go to **Gemini CLI** by default, using web search under the user's Gemini login. No extra key is needed.
-- **Gemini Deep Research API** is opt-in. It goes deeper but is slower: 5–60 min, roughly $2–5 per run, and it needs a paid-tier key.
-  - For a single job, set the `research_engine` slot to `deep_research`. Only offer this when the user asks for deep or thorough research. Never pick it silently.
-  - To make it the default, set `research.mode` to `"deep_research"` in `~/conductor/config.json`.
-- If `deep_research` is selected without a key, the brief shows a warning and the step fails with a clear error. Offer to switch back to `gemini`.
+- **Core: Claude Code and Codex.** Every pipeline works with just these two. Research steps use **Claude** (WebSearch/WebFetch) by default; `second_opinion` compares Claude with **Codex** by default.
+- **Optional, only when the user asks and the CLI is installed:**
+  - `research_engine`: `antigravity` (Antigravity CLI `agy`), `gemini` (Gemini CLI; since 2026-06-18 it only serves Code Assist enterprise licenses and paid API keys), or `deep_research` (Gemini Deep Research API: deepest, 5–60 min, roughly $2–5 per run, paid-tier key).
+  - `second_agent` (for `second_opinion`): `antigravity` or `gemini` instead of `codex`.
+- Never pick an optional engine silently. Offer `deep_research` only when the user asks for deep or thorough research.
+- If the brief shows `⚠ 未安装 …` or `⚠ 未配置 GEMINI_API_KEY`, point it out before confirming and offer to switch back to the core default (`claude` / `codex`). A job that runs anyway fails with a clear error.
+- To change defaults, the user edits `~/conductor/config.json` (`research.mode`).
 
 ## Credentials
 

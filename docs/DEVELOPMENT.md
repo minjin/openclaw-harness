@@ -60,7 +60,7 @@ SKILL.md 只负责告诉模型「应该怎么做」；做不做得到，由运�
 
 最初设计默认使用 Gemini Deep Research API。用户指出它应该是可选项：它更贵（每次约 $2–5）、更慢（5 到 60 分钟），还需要付费 key。调整后：
 
-- **默认用 Gemini CLI 联网研究**，使用用户已有的 Gemini 登录，不需要额外的 key；
+- **默认用 Claude 联网研究**（最初是 Gemini CLI，见 §3.7），使用用户已有的登录，不需要额外的 key；
 - **Deep Research 可以按任务选择**（槽位 `research_engine`），也可以设成默认；
 - **选了 Deep Research 却没有 key 时，明确报错**，不静默降级。静默降级会让用户以为自己用的是 Deep Research。
 
@@ -72,7 +72,7 @@ SKILL.md 只负责告诉模型「应该怎么做」；做不做得到，由运�
 - 产出先进待审区，用户点头之后由 `promote` 这一个入口写入；
 - 研究报告和网页内容标记为 `trust: external`，其中的指令一律不执行。
 
-规则层同样只有一个源头：`AGENTS.md`。Claude 通过实时导入读取，Codex 和 Gemini 读托管副本，每一步的提示词里也内联一份（原因见 §5）。
+规则层同样只有一个源头：`AGENTS.md`。Claude 通过实时导入读取，Codex（及已安装的 Antigravity / Gemini）读托管副本，每一步的提示词里也内联一份（原因见 §5）。
 
 ### 3.6 一个文件完成安装，而且安装者是 agent
 
@@ -82,6 +82,18 @@ SKILL.md 只负责告诉模型「应该怎么做」；做不做得到，由运�
 - **说明书必须经得起 agent 的自由发挥**：写明原则（先说后做、密钥不进聊天、以验证输出为准、版本不符时先查 `--help`、发现缺陷时报告而不是改代码）。
 
 登录必须由用户在自己的终端里完成（OAuth 需要浏览器）。agent 只负责给出命令，并在用户完成后做验证。
+
+### 3.7 核心只保留 Claude + Codex，Google 系 agent 改为可选
+
+最初的设计让 Gemini CLI 负责研究和第二意见。2026-05-19 Google 宣布：自 2026-06-18 起，Gemini CLI 不再服务个人 Google 账号（免费、AI Pro、AI Ultra），只保留给 Gemini Code Assist 企业授权和付费 API key，继任者是 **Antigravity CLI（`agy`）**。用户实际使用时发现 Gemini CLI 已不可用。
+
+先是尝试整体迁到 Antigravity，随后决定更进一步：**核心只依赖 Claude Code 和 Codex**，Google 系 agent 全部做成可选项。理由是：外部 CLI 的服务策略会变，核心链路不应押在任何一个可能停服的组件上；Claude 自带 WebSearch / WebFetch，足以承担默认研究；Codex 作为第二意见也足够独立。
+
+- **默认值**：研究引擎 `claude`；`second_opinion` 的第二个模型 `codex`（槽位 `second_agent`）。
+- **可选项**：`antigravity`（`agy -p … --output-format json`）、`gemini`（仅企业授权 / 付费 key）、`deep_research`（Gemini API，与 CLI 停服无关）。
+- **没装可选项不算问题**：`doctor` 只要求 Claude 和 Codex；可选 agent 未安装时显示为 ok（可选），只有被设为默认时才报错；装了但没登录时只报 warn。简报里选了未安装的可选项会标出 `⚠ 未安装`，执行时给出明确错误。
+- **不碰 `~/.gemini`**：两者都读 `~/.gemini/GEMINI.md`，但只有装了其中之一（或文件已存在）时才写入规则区块。
+- **`agy` 调用细节**：只有 `status == SUCCESS` 且退出码 0 才算成功（已知它偶尔「SUCCESS 但 response 为空」，由产物长度校验兜底）；子进程一律带 `AGY_CLI_DISABLE_AUTO_UPDATE=true`；不用 `--dangerously-skip-permissions`；没有登录状态命令，未登录时错误信息会提示运行 `agy` 登录。
 
 ## 4. 开发过程
 
@@ -126,7 +138,7 @@ SKILL.md 只负责告诉模型「应该怎么做」；做不做得到，由运�
 
 ## 6. 已知限制
 
-- Gemini 研究步骤和 `second_opinion` 流水线还没有在真机上用真实的 Gemini 跑通（测试当天额度用尽）；Deep Research 目前只有桩测试。
+- 可选的 Antigravity / Gemini 路径只有假 CLI 测试，还没有在真机上跑通；Deep Research 目前只有桩测试。
 - 通知依赖 OpenClaw 的外部渠道；TUI 和 Web 控制台收不到推送。
 - 无头模式下的权限是静态的：构建步骤要跑测试命令，需要用户事先加进 `claude_build_tools`。
 - `ask_user` 只在 OpenClaw 的主会话中可用。
@@ -136,7 +148,7 @@ SKILL.md 只负责告诉模型「应该怎么做」；做不做得到，由运�
 
 | 优先级 | 事项 |
 |---|---|
-| 高 | 用真实的 Gemini 补跑研究类流水线和 `second_opinion`；用付费 key 实测一次 Deep Research |
+| 中 | 用真实的 Antigravity CLI 跑一次研究和第二意见；用付费 key 实测一次 Deep Research |
 | 高 | 用本地小模型（比如 Qwen3 MoE 经 Ollama）作为编排模型，完整走一遍澄清和确认流程，验证「模型无关」 |
 | 中 | 研究步骤支持更多引擎（例如 OpenAI Deep Research、自托管的 gpt-researcher） |
 | 中 | 构建步骤可选 Codex 实现、Claude 审查（反向组合） |

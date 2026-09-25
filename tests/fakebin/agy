@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+# Fake Antigravity CLI: `agy -p ... --output-format json` (official single-line JSON envelope).
+import json, os, sys
+a = sys.argv[1:]
+if a and a[0] == "--version":
+    print("9.9.9"); sys.exit(0)
+prompt = a[a.index("-p") + 1]
+with open(os.path.join(os.environ["HOME"], "agy_calls.jsonl"), "a") as log:
+    log.write(json.dumps({"argv": a, "cwd": os.getcwd(),
+                          "no_update": os.environ.get("AGY_CLI_DISABLE_AUTO_UPDATE")}, ensure_ascii=False) + "\n")
+if os.environ.get("FAKE_AGY_UNAUTH"):
+    sys.stderr.write("Authentication required. Please visit the URL to log in:\n")
+    print(json.dumps({"conversation_id": "", "status": "ERROR", "response": "",
+                      "error": "authentication failed or timed out"}))
+    sys.exit(1)
+text = "CONDUCTOR-RULES-V1" if "只回复你的共享规则里" in prompt \
+    else "# 报告\n\n" + "研究发现 https://example.com " * 120
+print(json.dumps({"conversation_id": "c1", "status": "SUCCESS", "response": text, "error": "",
+                  "num_turns": 1}, ensure_ascii=False))

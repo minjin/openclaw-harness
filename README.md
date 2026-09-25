@@ -1,6 +1,6 @@
 # openclaw-harness · Conductor —— OpenClaw 多 Agent 编排 Skill
 
-你在聊天里跟 OpenClaw 说需求，它先问清楚、写成任务简报，**等你确认后**再按固定流水线把活派给本机的 **Gemini CLI**（研究）、**Claude Code**（实现）和 **Codex**（审查）。任务在后台执行，完成、受阻或失败时会主动通知你。所有 agent 共用同一个**外脑**：知识库、经验记忆和一份统一的规则文件。
+你在聊天里跟 OpenClaw 说需求，它先问清楚、写成任务简报，**等你确认后**再按固定流水线把活派给本机的 **Claude Code**（实现）和 **Codex**（审查）。任务在后台执行，完成、受阻或失败时会主动通知你。所有 agent 共用同一个**外脑**：知识库、经验记忆和一份统一的规则文件。
 
 ```
 你（Telegram / 任意 OpenClaw 渠道）
@@ -11,7 +11,7 @@ OpenClaw（任意模型）＋ conductor skill
   │  ② 给你看简报，你确认   ← 未经确认的任务，代码拒绝执行
   ▼
 conductor.py（确定性流水线，后台运行）
-  ├─ 研究：Gemini CLI 联网研究（可选 Gemini Deep Research API）→ report.md
+  ├─ 研究：Claude 联网研究（可选 Antigravity / Gemini CLI / Deep Research API）→ report.md
   ├─ 实现：Claude Code，在隔离的 git worktree 分支里 → build.md
   ├─ 审查：Codex，只读沙箱 → review.md
   └─ 汇总 → result.md；提炼经验 → 待审区
@@ -43,7 +43,7 @@ conductor.py（确定性流水线，后台运行）
 
 1. 选择要启用的 agent；
 2. 安装缺少的 CLI；
-3. 在你自己的终端里登录 Claude Code、Codex、Gemini；
+3. 在你自己的终端里登录 Claude Code、Codex（可选：Antigravity CLI）；
 4. 初始化外脑、统一规则；
 5. 可选：配置 Deep Research；
 6. 跑一次冒烟测试。
@@ -59,31 +59,34 @@ python3 ~/.openclaw/skills/conductor/scripts/conductor.py doctor --deep
 **依赖：**
 
 - 必需：OpenClaw、Python ≥ 3.9、git。
-- 按需：Claude Code、Codex CLI、Gemini CLI，至少装一个；研究类流水线需要 Gemini CLI。
+- **核心（必需）：Claude Code、Codex CLI**。只装这两个，5 条流水线全部可用。
+- 可选：Antigravity CLI（`agy`）、Gemini CLI（仅企业授权 / 付费 key）。
 - 可选：ripgrep、qmd、Gemini 付费 API key（Deep Research 用）。
 
 ## 流水线
 
 | 流水线 | 执行步骤 |
 |---|---|
-| `research_only` | Gemini 研究 → Claude 提炼交付摘要 |
-| `research_then_build` | Gemini 研究 → Claude 实现 → Codex 审查 → 汇总 |
+| `research_only` | 研究（默认 Claude）→ Claude 提炼交付摘要 |
+| `research_then_build` | 研究（默认 Claude）→ Claude 实现 → Codex 审查 → 汇总 |
 | `build_review` | Claude 实现 → Codex 审查 → 汇总 |
-| `second_opinion` | Claude 和 Gemini 分别独立作答 → 对比出综合结论 |
+| `second_opinion` | Claude 和第二个模型（默认 Codex，可选 Antigravity / Gemini）分别独立作答 → 对比出综合结论 |
 | `ingest` | 把外部资料整理成带出处的知识笔记 → 你审核 → 入库外脑 |
 
 流水线定义在 [`pipelines.json`](pipelines.json) 里，包括必填项、追问话术和每一步的指令，可以直接修改或新增。
 
 **研究引擎：**
 
-- 默认用 **Gemini CLI** 联网研究，不需要额外的 key。
-- **Gemini Deep Research API** 是可选项：更深入，但每次耗时 5–60 分钟、约 $2–5，且需要付费 key。可以只对某个任务用（设置 `research_engine=deep_research`），也可以在 `~/conductor/config.json` 里设为默认。
+- 默认用 **Claude Code** 联网研究（WebSearch / WebFetch），不需要额外的 key。
+- 可选：**Antigravity CLI**（`agy`）或 **Gemini CLI**，用 `research_engine=antigravity|gemini` 按任务选择。
+  > Gemini CLI 已于 2026-06-18 停止服务个人 Google 账号（免费 / Pro / Ultra），只剩企业授权和付费 API key 可用；个人账号请用 Claude（默认）或 Antigravity CLI。
+- **Gemini Deep Research API** 也是可选项：更深入，但每次耗时 5–60 分钟、约 $2–5，且需要付费 key。可以只对某个任务用（设置 `research_engine=deep_research`），也可以在 `~/conductor/config.json` 里设为默认。
 
 ## 外脑（共享记忆与知识）
 
 ```
 ~/conductor/
-  AGENTS.md          唯一规则源：Claude 用 @import 实时读取，Codex / Gemini 读托管副本
+  AGENTS.md          唯一规则源：Claude 用 @import 实时读取，Codex（及已安装的 Antigravity / Gemini）读托管副本
   brain/
     index.md         总索引
     knowledge/       已审核的知识笔记（按主题分目录）
@@ -115,7 +118,7 @@ $C sync-rules | unwire      # 同步共享规则 / 卸载规则接线（setup --
   - Codex 审查时在只读沙箱里运行。
 - 代码只提交到 `conductor/<job>` 分支，**永远不会自动 merge 或 push**。
 - 密钥只放在 `~/conductor/.env`（权限 600），不会经过聊天。
-- 改动 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`、`~/.gemini/GEMINI.md` 时只追加带标记的区块，首次修改前自动备份为 `*.bak-conductor`；`unwire` 可一键移除。
+- 改动 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`、`~/.gemini/GEMINI.md`（仅在装了 Antigravity / Gemini CLI 时）时只追加带标记的区块，首次修改前自动备份为 `*.bak-conductor`；`unwire` 可一键移除。
 
 ## 开发
 

@@ -12,14 +12,14 @@ Conductor 版本：1.0.0
 
 **Conductor 是什么**：让你（OpenClaw）充当「前台」的一套多 agent 编排系统。
 
-- 你负责跟用户对话，澄清需求，产出任务简报；用户确认后，按固定流水线把活派给本机的 Gemini CLI、Claude Code、Codex 在后台执行，完成后把结果推回聊天。Gemini Deep Research API 是可选的增强项。
+- 你负责跟用户对话，澄清需求，产出任务简报；用户确认后，按固定流水线把活派给本机的 **Claude Code 和 Codex（核心，必需）** 在后台执行，完成后把结果推回聊天。Antigravity CLI、Gemini CLI、Gemini Deep Research API 都是**可选**增强项。
 - 同时提供一套所有 agent 共用的外脑，放在 `~/conductor/brain`：知识库、经验记忆，以及统一的规则文件 `~/conductor/AGENTS.md`。
 - 流程控制全部由脚本 `conductor.py` 强制执行，不依赖你用的是什么模型。
 
 **安装原则：**
 
 1. **先说后做。** 每个阶段先用一两句话告诉用户接下来要做什么、会改动哪些文件，得到同意后再执行。
-2. **改用户全局配置之前必须征得同意。** 需要改的是 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`、`~/.gemini/GEMINI.md`。脚本只会追加一个带标记的区块，第一次修改前会自动备份为 `*.bak-conductor`。
+2. **改用户全局配置之前必须征得同意。** 需要改的是 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`（以及装了可选 Google agent 时的 `~/.gemini/GEMINI.md`）。脚本只会追加一个带标记的区块，第一次修改前会自动备份为 `*.bak-conductor`。
 3. **不在聊天里收集任何密钥或密码。** 需要密钥时，给用户一条在他自己终端里执行的命令。
 4. **不看退出码判断成功。** 以每个阶段的验证命令输出为准。
 5. **命令和本机版本对不上时**（报「未知参数」之类的错），先运行 `<命令> --help` 核对用法，调整后再执行，并告诉用户你改了什么。
@@ -36,7 +36,7 @@ Conductor 版本：1.0.0
 
 | id | 问题 | 选项 |
 |---|---|---|
-| agents | 要启用哪些执行 agent？（多选） | Claude Code (Recommended) / Codex / Gemini CLI |
+| extras | Claude Code 和 Codex 是必装的核心。要不要额外启用可选的 Google agent？（多选，可都不选） | 都不要 (Recommended) / Antigravity CLI / Gemini CLI（仅企业授权或付费 key） |
 | notify | 任务完成后把通知发到哪里？ | 当前这个聊天 (Recommended) / 暂不通知 |
 
 > 通知走 `openclaw message send`，**只支持外部渠道**（Telegram、Slack、Discord 等）。如果用户是在 TUI 或 Web 控制台里跟你对话，这些界面收不到推送：请推荐「暂不通知」，并告诉用户任务状态可以随时问你。
@@ -44,7 +44,8 @@ Conductor 版本：1.0.0
 
 补充说明：
 
-- **研究步骤默认由 Gemini CLI 执行**。如果用户没选 Gemini CLI，要告诉他：研究类流水线需要 Gemini CLI，或者后面配置 Deep Research API key。
+- **核心只有 Claude Code 和 Codex**：研究默认由 Claude（WebSearch / WebFetch）完成，`second_opinion` 默认让 Claude 和 Codex 对比。只装这两个，所有流水线都能用。
+- **可选的 Google agent** 只在用户想要时安装：Antigravity CLI（`agy`）可作为研究引擎或第二意见；Gemini CLI 自 2026-06-18 起不再服务个人 Google 账号（免费 / Pro / Ultra），只适合有企业授权或付费 API key 的用户。
 - **选了「当前这个聊天」时**，从当前会话上下文里确定渠道名和目标 ID（比如 Telegram 的 chat id），然后用 `openclaw message send --channel <渠道> --target <ID> --message test` 发一条测试消息，确认能送达。如果无法确定，请用户提供，或者先跳过，以后再用 `setup --notify-channel ... --notify-target ...` 补上。
 - **再用一句话问用户的称呼和常用技术栈**（可以跳过），这些信息会写进共享规则的「用户偏好」小节。
 
@@ -59,7 +60,7 @@ uname -s; python3 --version; git --version; node --version; npm --version; openc
 逐项核对：
 
 - **python3 ≥ 3.9 和 git 必须有。** 缺失时告诉用户对应的安装方式：macOS 用 `xcode-select --install` 或 Homebrew；Linux 用系统包管理器。
-- **node ≥ 22 和 npm**：通过 npm 安装 Codex 或 Gemini CLI 时需要。如果缺失，推荐用户用 Homebrew、nvm 或 fnm 安装 Node 22+。
+- **node ≥ 22 和 npm**：通过 npm 安装 Codex 时需要（Antigravity CLI 是独立二进制，不需要 Node）。如果缺失，推荐用户用 Homebrew、nvm 或 fnm 安装 Node 22+。
 - **ripgrep（rg）可选**，装了以后外脑检索更快：`brew install ripgrep` 或 `apt install ripgrep`。
 - **Windows 用户**：建议在 WSL2 里安装整套系统。
 
@@ -67,9 +68,9 @@ uname -s; python3 --version; git --version; node --version; npm --version; openc
 
 ## 3. 安装执行 agent（只装缺的）
 
-先检查哪些已经装好了：`claude --version; codex --version; gemini --version`
+先检查哪些已经装好了：`claude --version; codex --version`（选了可选项的，再加 `agy --version` / `gemini --version`）
 
-然后只安装阶段 1 里用户选中、并且本机还没有的那些：
+**Claude Code 和 Codex 必须安装**；可选项只在阶段 1 里用户选中、并且本机还没有时安装：
 
 ```bash
 # Claude Code（官方原生安装器；也可以用 brew install --cask claude-code）
@@ -78,7 +79,10 @@ curl -fsSL https://claude.ai/install.sh | bash
 # Codex（也可以用 brew install --cask codex）
 npm install -g @openai/codex
 
-# Gemini CLI（也可以用 brew install gemini-cli）
+# 可选：Antigravity CLI（官方安装脚本，装到 ~/.local/bin/agy）
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+
+# 可选：Gemini CLI（仅企业授权 / 付费 key）
 npm install -g @google/gemini-cli
 ```
 
@@ -94,13 +98,14 @@ npm install -g @google/gemini-cli
 |---|---|---|
 | Claude Code | `claude auth login`（或者直接运行 `claude`，按提示登录） | `claude auth status`，exit 0 表示已登录 |
 | Codex | `codex login` | `codex login status`，exit 0 表示已登录 |
-| Gemini CLI | `gemini` → 选择 **Sign in with Google** → 完成后输入 `/quit` | 阶段 9 的 `doctor --deep` 会做实测 |
+| Antigravity CLI（可选） | `agy` → 选择 **Google OAuth** → 浏览器授权（SSH 远程时把页面给出的授权码粘贴回终端）→ 完成后输入 `/quit` | 没有状态命令；阶段 9 的 `doctor --deep` 会做实测 |
+| Gemini CLI（可选） | `gemini` → 按企业授权或 API key 的方式登录 | 阶段 9 的 `doctor --deep` 会做实测 |
 
 **无浏览器或远程服务器的情况：**
 
 - **Claude**：在一台有浏览器的电脑上运行 `claude setup-token`，把得到的 token 以 `CLAUDE_CODE_OAUTH_TOKEN=...` 的形式写入 OpenClaw Gateway 进程的环境变量。
 - **Codex**：用 `codex login --device-auth`（设备码登录）。
-- **Gemini**：也可以用 API key 代替 Google 登录。让用户把 `GEMINI_API_KEY` 写进 `~/conductor/.env`，方法见阶段 7。
+- **Antigravity**：远程会话里 `agy` 会给出网址和授权码输入框，用户在自己电脑的浏览器授权后把授权码粘贴回终端即可。也可以改用 Gemini API key（在 `~/.gemini/antigravity-cli/settings.json` 设 `"modelProvider": "gemini"` 并导出 `GEMINI_API_KEY`）。
 
 注意：OpenClaw 在后台调用这些 CLI 时，用的是**运行 OpenClaw Gateway 的那个系统用户**的登录状态。所以用户必须用同一个系统用户登录。
 
@@ -136,7 +141,7 @@ python3 <SKILL>/scripts/conductor.py pipelines   # 应输出 5 条流水线
 
 先向用户说明，并**征得同意**：
 
-> 接下来会创建 `~/conductor/`，里面包含外脑、任务目录和共享规则。同时会在 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`、`~/.gemini/GEMINI.md` 末尾各追加一个带标记的区块，让三个 CLI 都读取同一份规则。第一次修改前会自动备份，以后可以用 `conductor.py unwire` 一键移除。
+> 接下来会创建 `~/conductor/`，里面包含外脑、任务目录和共享规则。同时会在 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`（以及装了可选 Google agent 时的 `~/.gemini/GEMINI.md`） 末尾各追加一个带标记的区块，让三个 CLI 都读取同一份规则。第一次修改前会自动备份，以后可以用 `conductor.py unwire` 一键移除。
 
 - 用户**同意**：
   ```bash
@@ -161,7 +166,7 @@ python3 <SKILL>/scripts/conductor.py sync-rules
 
 先问用户要不要启用。启用前要说明清楚：
 
-- 这一项是**可选的**。不启用的话，研究由 Gemini CLI 联网完成，完全够用。
+- 这一项是**可选的**。不启用的话，研究由 Claude 联网完成，完全够用。
 - Deep Research 更深入，但单次耗时 5–60 分钟，每次约 $2–5，而且需要**付费层**的 API key（在 https://aistudio.google.com/apikey 获取；免费 key 会报 429）。
 - 启用后也**不会自动使用**。只有在单个任务里选择 `deep_research` 引擎，或者在 `~/conductor/config.json` 里把 `research.mode` 改成 `"deep_research"` 作为默认，才会用到它。
 
@@ -206,7 +211,7 @@ python3 <SKILL>/scripts/conductor.py doctor --deep
 
 然后做一次**完整的冒烟测试**，把 skill 第 2 到第 4 节的对话流程走一遍（便宜又快，不花 Deep Research 的钱）。
 
-如果 `live:gemini` 失败（比如免费额度用完，报 429），就改用 `build_review`：先建一个一次性仓库（`git init` + 一个小文件），然后让 Claude 做一个极小的改动，由 Codex 审查。完成后要告诉用户，Gemini 那条测试是没跑的。
+冒烟测试只用核心的 Claude 和 Codex。可选的 Antigravity / Gemini 如果在 `doctor --deep` 里报 `warn`（比如没登录，或额度用完报 429），告诉用户即可，不影响核心功能。
 
 1. `new --pipeline second_opinion --title smoke --set question="用一句话说明什么是 CRDT"`
 2. `render`，把简报给用户看，用 `ask_user` 请他确认
@@ -214,7 +219,7 @@ python3 <SKILL>/scripts/conductor.py doctor --deep
 4. 等待完成通知送达聊天。一般 1 到 3 分钟。
 
    **不要循环轮询。** 如果 5 分钟后还没收到通知，或者没配置通知，就运行一次 `status` 查看状态。任务日志 `log.txt` 里会记录通知是否发出，以及没发出的原因。
-5. 用 `result` 查看结果，确认里面有 Claude 和 Gemini 两方观点的对比。
+5. 用 `result` 查看结果，确认里面有 Claude 和 Codex 两方观点的对比。
 
 通知没有送达时，检查 `~/conductor/config.json` 里的 `notify` 配置，并手动试一下：
 
@@ -232,10 +237,10 @@ openclaw message send --channel <渠道> --target <目标> --message test
 
 - 「帮我研究一下 X」
 - 「研究 X，然后在 ~/code/app 里实现」
-- 「让 Claude 和 Gemini 都说说 X」
+- 「让 Claude 和 Codex 都说说 X」
 - 「导入知识」
 
-我会先问几个问题，把简报给你确认，确认后在后台执行，完成时通知你。研究默认交给 Gemini CLI；想要更深入的 Gemini Deep Research（需要付费 key），直接说「用 Deep Research」即可。
+我会先问几个问题，把简报给你确认，确认后在后台执行，完成时通知你。研究默认交给 Claude；装了可选的 Antigravity CLI 可以说「用 Antigravity 研究」；想要更深入的 Gemini Deep Research（需要付费 key），直接说「用 Deep Research」即可。
 
 **2. 结果在哪里。**
 
@@ -300,16 +305,16 @@ gateway 重启完成后，运行 `openclaw memory index --force`，再用 `openc
 ~~~~~markdown
 ---
 name: conductor
-description: Multi-agent orchestration. Clarify the user's request into a brief, get explicit confirmation, then run a fixed pipeline that dispatches to Gemini CLI (research; optional Gemini Deep Research API), Claude Code and Codex in the background and reports back. Also manages the shared "brain" (knowledge base + lessons memory) and imports external knowledge. Use for deep research, research-then-build, build-and-review, second opinions across models, "导入知识", checking or answering conductor jobs.
+description: Multi-agent orchestration. Clarify the user's request into a brief, get explicit confirmation, then run a fixed pipeline that dispatches to Claude Code and Codex (core), with optional Antigravity CLI, Gemini CLI and Gemini Deep Research API in the background and reports back. Also manages the shared "brain" (knowledge base + lessons memory) and imports external knowledge. Use for deep research, research-then-build, build-and-review, second opinions across models, "导入知识", checking or answering conductor jobs.
 user-invocable: true
 metadata: {"openclaw": {"emoji": "🎼", "requires": {"bins": ["python3", "git"]}}}
 ---
 
 # Conductor
 
-You are the **front desk** of a multi-agent pipeline. You talk with the user and fill in a brief. Specialist agents do the work: Gemini CLI (research by default; the Gemini Deep Research API is optional), Claude Code and Codex.
+You are the **front desk** of a multi-agent pipeline. You talk with the user and fill in a brief. Specialist agents do the work. **Core (always available): Claude Code and Codex.** Optional, only if installed and chosen: Antigravity CLI (`agy`), Gemini CLI, and the Gemini Deep Research API.
 
-**The runner script enforces every gate. Never try to work around it.** Do not run `claude`, `codex` or `gemini` directly for pipeline work. Do not edit files under `~/conductor/jobs` or `~/conductor/brain` by hand.
+**The runner script enforces every gate. Never try to work around it.** Do not run `claude`, `codex`, `agy` or `gemini` directly for pipeline work. Do not edit files under `~/conductor/jobs` or `~/conductor/brain` by hand.
 
 Runner (all output is JSON):
 
@@ -321,10 +326,10 @@ C="python3 {baseDir}/scripts/conductor.py"
 
 | Pipeline | When | Who does what |
 |---|---|---|
-| `research_only` | The user wants to understand, compare or decide something | Gemini research → Claude summary |
-| `research_then_build` | Research first, then write code or documents | Gemini research → Claude implements → Codex reviews |
+| `research_only` | The user wants to understand, compare or decide something | Research (Claude by default) → Claude summary |
+| `research_then_build` | Research first, then write code or documents | Research (Claude by default) → Claude implements → Codex reviews |
 | `build_review` | Straight implementation, no research needed | Claude implements → Codex reviews |
-| `second_opinion` | "What do the different models think?", or a high-stakes judgment call | Claude and Gemini answer independently → comparison |
+| `second_opinion` | "What do the different models think?", or a high-stakes judgment call | Claude and a second model (Codex by default) answer independently → comparison |
 | `ingest` | "导入知识", or the user hands over files, URLs or notes to remember | Claude turns them into notes → user reviews → brain |
 
 - If the request fits no pipeline, or is a quick question, answer it yourself without the runner.
@@ -396,13 +401,15 @@ After the job finishes, show the list of generated notes and promote with `--kno
 | `$C sync-rules` | Run after the user edits `~/conductor/AGENTS.md`, the shared rules for every agent. If the install used `--no-wire`, this writes nothing, because pipelines inline the rules into every step prompt. Only run `$C setup --wire` if the user asks to wire the rules into the CLIs' global files. |
 | `$C pipelines` | Lists the pipelines and their slots. |
 
-## Research engine (optional Deep Research)
+## Core and optional agents
 
-- Research steps go to **Gemini CLI** by default, using web search under the user's Gemini login. No extra key is needed.
-- **Gemini Deep Research API** is opt-in. It goes deeper but is slower: 5–60 min, roughly $2–5 per run, and it needs a paid-tier key.
-  - For a single job, set the `research_engine` slot to `deep_research`. Only offer this when the user asks for deep or thorough research. Never pick it silently.
-  - To make it the default, set `research.mode` to `"deep_research"` in `~/conductor/config.json`.
-- If `deep_research` is selected without a key, the brief shows a warning and the step fails with a clear error. Offer to switch back to `gemini`.
+- **Core: Claude Code and Codex.** Every pipeline works with just these two. Research steps use **Claude** (WebSearch/WebFetch) by default; `second_opinion` compares Claude with **Codex** by default.
+- **Optional, only when the user asks and the CLI is installed:**
+  - `research_engine`: `antigravity` (Antigravity CLI `agy`), `gemini` (Gemini CLI; since 2026-06-18 it only serves Code Assist enterprise licenses and paid API keys), or `deep_research` (Gemini Deep Research API: deepest, 5–60 min, roughly $2–5 per run, paid-tier key).
+  - `second_agent` (for `second_opinion`): `antigravity` or `gemini` instead of `codex`.
+- Never pick an optional engine silently. Offer `deep_research` only when the user asks for deep or thorough research.
+- If the brief shows `⚠ 未安装 …` or `⚠ 未配置 GEMINI_API_KEY`, point it out before confirming and offer to switch back to the core default (`claude` / `codex`). A job that runs anyway fails with a clear error.
+- To change defaults, the user edits `~/conductor/config.json` (`research.mode`).
 
 ## Credentials
 
@@ -504,12 +511,24 @@ Never collect secrets in chat. To enable Deep Research, the user adds `GEMINI_AP
     },
     "research_engine": {
       "header": "研究引擎",
-      "question": "研究交给谁？gemini = Gemini CLI 联网研究（默认，不需额外 key）；deep_research = Gemini Deep Research API（更深入，需付费 key，约 $2–5/次，耗时 5–60 分钟）",
+      "question": "研究交给谁？claude = Claude Code 联网研究（默认）；antigravity = Antigravity CLI（可选，需装 agy）；gemini = Gemini CLI（可选，仅企业授权/付费 key）；deep_research = Gemini Deep Research API（可选，最深入，需付费 key，约 $2–5/次，5–60 分钟）",
       "options": [
-        "gemini",
-        "deep_research"
+        "claude",
+        "antigravity",
+        "deep_research",
+        "gemini"
       ],
       "default": ""
+    },
+    "second_agent": {
+      "header": "第二意见",
+      "question": "和 Claude 对比的另一个模型用哪个？",
+      "options": [
+        "codex",
+        "antigravity",
+        "gemini"
+      ],
+      "default": "codex"
     }
   },
   "pipelines": {
@@ -532,7 +551,7 @@ Never collect secrets in chat. To enable Deep Research, the user adds `GEMINI_AP
           "agent": "research",
           "output": "report.md",
           "min_bytes": 1500,
-          "summary": "联网研究（默认 Gemini CLI；可选 Deep Research API），产出带来源的报告",
+          "summary": "联网研究（默认 Claude；可选 Antigravity / Gemini / Deep Research），产出带来源的报告",
           "task": "研究问题：{question}\n研究用途：{purpose}\n范围限定：{scope}\n已知信息：{known_context}\n\n输出要求：用{language}撰写 Markdown 研究报告。开头是「结论摘要」（不超过 10 条），然后分节论证；每个关键论断都附来源链接；最后列出「不确定点与待验证事项」。"
         },
         {
@@ -581,7 +600,7 @@ Never collect secrets in chat. To enable Deep Research, the user adds `GEMINI_AP
           "agent": "research",
           "output": "report.md",
           "min_bytes": 1500,
-          "summary": "联网研究（默认 Gemini CLI；可选 Deep Research API），产出带来源的报告",
+          "summary": "联网研究（默认 Claude；可选 Antigravity / Gemini / Deep Research），产出带来源的报告",
           "task": "研究问题：{question}\n研究将用于完成：{goal}\n约束：{constraints}\n范围限定：{scope}\n已知信息：{known_context}\n\n输出要求：用{language}撰写 Markdown 研究报告。开头是「结论摘要」（不超过 10 条），重点给出可落地的实现建议与取舍；每个关键论断都附来源链接；最后列出「不确定点与待验证事项」。"
         },
         {
@@ -701,11 +720,12 @@ Never collect secrets in chat. To enable Deep Research, the user adds `GEMINI_AP
       ]
     },
     "second_opinion": {
-      "description": "Claude 与 Gemini 独立作答，再对比出综合结论",
+      "description": "Claude 与另一个模型（默认 Codex，可选 Antigravity / Gemini）独立作答，再对比出综合结论",
       "required": [
         "question"
       ],
       "optional": [
+        "second_agent",
         "known_context",
         "language"
       ],
@@ -718,11 +738,12 @@ Never collect secrets in chat. To enable Deep Research, the user adds `GEMINI_AP
           "task": "独立回答问题：{question}\n已知信息：{known_context}\n用{language}给出：结论、理由、置信度（高/中/低）与主要不确定点。"
         },
         {
-          "id": "answer_gemini",
-          "agent": "gemini",
-          "output": "gemini.md",
-          "summary": "Gemini 独立作答",
-          "task": "独立回答问题：{question}\n已知信息：{known_context}\n用{language}给出：结论、理由、置信度（高/中/低）与主要不确定点。"
+          "id": "answer_second",
+          "agent": "$second_agent",
+          "output": "second.md",
+          "summary": "第二个模型独立作答",
+          "task": "独立回答问题：{question}\n已知信息：{known_context}\n用{language}给出：结论、理由、置信度（高/中/低）与主要不确定点。",
+          "agent_default": "codex"
         },
         {
           "id": "compare",
@@ -730,10 +751,10 @@ Never collect secrets in chat. To enable Deep Research, the user adds `GEMINI_AP
           "output": "result.md",
           "inputs": [
             "claude.md",
-            "gemini.md"
+            "second.md"
           ],
           "summary": "对比两份回答，给出综合结论",
-          "task": "对比两份独立回答（claude.md 与 gemini.md）：共识；分歧（逐条说明哪边更有道理及原因）；综合建议与置信度。用{language}。"
+          "task": "对比两份独立回答（claude.md 与 second.md）：共识；分歧（逐条说明哪边更有道理及原因）；综合建议与置信度。用{language}。"
         }
       ]
     },
@@ -817,10 +838,12 @@ DR_API = "https://generativelanguage.googleapis.com/v1beta/interactions"
 DEFAULT_CONFIG = {
     "notify": {"channel": "", "target": ""},
     "research": {
-        # Default engine for research steps: "gemini" (Gemini CLI web research, no extra key)
-        # or "deep_research" (Gemini Deep Research API; paid-tier GEMINI_API_KEY required).
+        # Default engine for research steps. Core: "claude" (Claude Code WebSearch/WebFetch).
+        # Optional: "antigravity" (Antigravity CLI `agy`), "gemini" (Gemini CLI; only for
+        # Code Assist enterprise licenses / paid API keys since 2026-06-18) and
+        # "deep_research" (Gemini Deep Research API, paid-tier GEMINI_API_KEY).
         # A job can override it with the research_engine slot.
-        "mode": "gemini",
+        "mode": "claude",
         "agent": "deep-research-preview-04-2026",
         "max_agent": "deep-research-max-preview-04-2026",
         "poll_seconds": 20,
@@ -843,13 +866,20 @@ DEFAULT_CONFIG = {
     ],
     "claude_args": [],
     "codex_args": [],
+    "antigravity_args": [],
     "gemini_args": [],
 }
+
+# Claude Code and Codex are the core agents; the Google agents are optional add-ons.
+CORE_AGENTS = ("claude", "codex")
+OPTIONAL_AGENTS = {"antigravity": "agy", "gemini": "gemini"}
+RESEARCH_ENGINES = ("claude", "antigravity", "gemini", "deep_research")
 
 ACTIVE_STATES = ("running",)
 AGENT_LABELS = {
     "claude": "Claude Code",
     "codex": "Codex",
+    "antigravity": "Antigravity CLI",
     "gemini": "Gemini CLI",
 }
 
@@ -1023,11 +1053,25 @@ def job_ctx(d, job, slots):
     return ctx
 
 
+def resolve_agent(step, slots):
+    """A step's agent is fixed ("claude") or chosen by a slot ("$second_agent")."""
+    agent = step["agent"]
+    if agent.startswith("$"):
+        agent = (slots.get(agent[1:]) or step.get("agent_default") or "codex").strip()
+    return agent
+
+
 def research_engine(slots, cfg):
-    engine = (slots.get("research_engine") or cfg["research"]["mode"] or "gemini").strip()
-    if engine not in ("gemini", "deep_research"):
-        raise StepError("未知研究引擎 %r（可选 gemini / deep_research）" % engine)
+    engine = (slots.get("research_engine") or cfg["research"]["mode"] or "claude").strip()
+    if engine not in RESEARCH_ENGINES:
+        raise StepError("未知研究引擎 %r（可选 %s）" % (engine, " / ".join(RESEARCH_ENGINES)))
     return engine
+
+
+def optional_missing(agent):
+    """Hint text if an optional agent is selected but its CLI is not installed."""
+    binary = OPTIONAL_AGENTS.get(agent)
+    return binary and not shutil.which(binary)
 
 
 def research_label(slots):
@@ -1038,7 +1082,11 @@ def research_label(slots):
         if not os.environ.get("GEMINI_API_KEY"):
             label += "（⚠ 未配置 GEMINI_API_KEY，执行会失败）"
         return label
-    return "Gemini CLI（联网研究）"
+    label = {"claude": "Claude Code（联网研究）", "antigravity": "Antigravity CLI（联网研究，可选）",
+             "gemini": "Gemini CLI（联网研究，可选）"}[engine]
+    if optional_missing(engine):
+        label += "（⚠ 未安装 %s，执行会失败）" % OPTIONAL_AGENTS[engine]
+    return label
 
 
 def render_brief(d, job, pdef):
@@ -1058,7 +1106,13 @@ def render_brief(d, job, pdef):
         if not when_ok(step, slots):
             continue
         n += 1
-        who = research_label(slots) if step["agent"] == "research" else AGENT_LABELS[step["agent"]]
+        agent = resolve_agent(step, slots)
+        if agent == "research":
+            who = research_label(slots)
+        else:
+            who = AGENT_LABELS.get(agent, agent)
+            if optional_missing(agent):
+                who += "（⚠ 未安装 %s，执行会失败）" % OPTIONAL_AGENTS[agent]
         lines.append("%d. **%s** → %s：%s" % (n, step["id"], who, step["summary"]))
     if job.get("answers"):
         lines += ["", "## 执行中补充的回答", ""]
@@ -1122,10 +1176,12 @@ def agent_env(cwd):
     return env
 
 
-def run_cli(cmd, cwd, timeout, d, sid, stdin_text=None):
+def run_cli(cmd, cwd, timeout, d, sid, stdin_text=None, extra_env=None):
     log(d, "exec %s %s (cwd=%s)" % (cmd[0], cmd[1] if len(cmd) > 1 and cmd[1] != "-p" else "-p", cwd))
     try:
-        r = subprocess.run(cmd, cwd=cwd, input=stdin_text, capture_output=True, text=True, env=agent_env(cwd),
+        env = agent_env(cwd)
+        env.update(extra_env or {})
+        r = subprocess.run(cmd, cwd=cwd, input=stdin_text, capture_output=True, text=True, env=env,
                            timeout=timeout, stdin=None if stdin_text is not None else subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         raise StepError("超时（%ds）" % timeout)
@@ -1201,7 +1257,21 @@ def run_codex(prompt, cwd, step, cfg, timeout, d, output):
     return text
 
 
+AGY_ENV = {"AGY_CLI_DISABLE_AUTO_UPDATE": "true"}  # never self-update in the middle of a job
+
+
+def agy_error(r, data):
+    """Best error text from an agy run: JSON `error`, else the AGY_ERROR stderr line."""
+    err = (data or {}).get("error")
+    if not err:
+        err = next((l for l in (r.stderr or "").splitlines() if l.startswith("AGY_ERROR:")), "")
+    if "authentication" in str(err).lower() or "Authentication required" in (r.stderr or ""):
+        err = "%s（未登录：在终端运行 agy，选择 Google OAuth 登录）" % err
+    return str(err) or tail(r.stderr)
+
+
 def run_gemini(prompt, cwd, step, cfg, timeout, d):
+    """Gemini CLI (optional): still served for Code Assist enterprise licenses and paid API keys."""
     cmd = ["gemini", "-p", prompt, "--output-format", "json", "--skip-trust",
            "--include-directories", ",".join([BRAIN, d])]
     if step.get("write"):
@@ -1210,9 +1280,28 @@ def run_gemini(prompt, cwd, step, cfg, timeout, d):
     r = run_cli(cmd, cwd, timeout, d, step["id"])
     data = last_json(r.stdout)
     if not data:
-        raise StepError("Gemini 无 JSON 输出（exit %s）：%s" % (r.returncode, tail(r.stderr)))
+        raise StepError("Gemini CLI 无 JSON 输出（exit %s）：%s" % (r.returncode, tail(r.stderr)))
     if data.get("error"):
-        raise StepError("Gemini 报错：%s" % tail(json.dumps(data["error"], ensure_ascii=False)))
+        raise StepError("Gemini CLI 报错：%s（个人 Google 账号自 2026-06-18 起已不可用，可改用 antigravity 或 claude）"
+                        % tail(json.dumps(data["error"], ensure_ascii=False)))
+    return data.get("response") or ""
+
+
+def run_antigravity(prompt, cwd, step, cfg, timeout, d):
+    cmd = ["agy", "-p", prompt, "--output-format", "json"]
+    if step.get("write"):
+        cmd += ["--mode", "accept-edits"]
+    for extra in (BRAIN, d):
+        if extra != cwd:
+            cmd += ["--add-dir", extra]
+    cmd += cfg["antigravity_args"]
+    r = run_cli(cmd, cwd, timeout, d, step["id"], extra_env=AGY_ENV)
+    data = last_json(r.stdout)
+    if not data:
+        raise StepError("Antigravity 无 JSON 输出（exit %s）：%s" % (r.returncode, tail(r.stderr)))
+    if data.get("status") != "SUCCESS" or r.returncode != 0:
+        raise StepError("Antigravity 失败（status=%s, exit %s）：%s"
+                        % (data.get("status"), r.returncode, agy_error(r, data)))
     return data.get("response") or ""
 
 
@@ -1300,13 +1389,24 @@ def run_research(d, job, step, slots, cfg, timeout):
     if engine == "deep_research":
         if not os.environ.get("GEMINI_API_KEY"):
             raise StepError("选择了 deep_research 但未配置 GEMINI_API_KEY（见 %s）；"
-                            "可把 research_engine 改为 gemini 后重试" % ENV_PATH)
+                            "可把 research_engine 改为 claude 后重试" % ENV_PATH)
         return deep_research(d, job, step, task, slots, cfg, timeout)
+    if optional_missing(engine):
+        raise StepError("研究引擎 %s 需要可选组件 %s，但本机未安装；可把 research_engine 改为 claude"
+                        % (engine, OPTIONAL_AGENTS[engine]))
     depth = "请尽可能全面深入，至少查阅 10 个相互独立的来源。" if slots.get("depth") == "max" else \
         "请查阅多个相互独立的来源。"
-    prompt = task + "\n\n请使用网络搜索（google_web_search）与网页抓取工具完成研究。" + depth + \
-        "每个关键论断都要附来源链接。只输出报告正文。"
-    return run_gemini(prompt, d, step, cfg, timeout, d)
+    tools = {"claude": "WebSearch 与 WebFetch", "antigravity": "search_web 与 read_url_content",
+             "gemini": "google_web_search 与 web_fetch"}[engine]
+    rules = read_text(RULES_PATH).strip()
+    prompt = ("以下是所有 agent 共享的规则，必须遵守：\n<shared-rules>\n%s\n</shared-rules>\n\n" % rules if rules else "") \
+        + task + "\n\n请使用网络搜索与网页读取工具（%s）完成研究。%s每个关键论断都要附来源链接。只输出报告正文。" \
+        % (tools, depth)
+    if engine == "claude":
+        return run_claude(prompt, d, dict(step, allowed_tools=["WebSearch", "WebFetch"]), cfg, timeout, d, [])
+    if engine == "gemini":
+        return run_gemini(prompt, d, step, cfg, timeout, d)
+    return run_antigravity(prompt, d, step, cfg, timeout, d)
 
 
 # ---------------------------------------------------------------- worker
@@ -1419,7 +1519,9 @@ def source_dirs(slots):
 
 
 def run_step(d, job, pdef, step, slots, cfg):
-    agent = step["agent"]
+    agent = resolve_agent(step, slots)
+    if optional_missing(agent):
+        raise StepError("步骤 %s 需要可选组件 %s，但本机未安装" % (step["id"], OPTIONAL_AGENTS[agent]))
     timeout = cfg["timeouts"]["research" if agent == "research" else "default"]
     cwd = job.get("workdir", d) if step.get("in_workdir") else d
     output = os.path.join(d, step["output"])
@@ -1433,6 +1535,8 @@ def run_step(d, job, pdef, step, slots, cfg):
             text = run_claude(prompt, cwd, step, cfg, timeout, d, extra)
         elif agent == "codex":
             text = run_codex(prompt, cwd, step, cfg, timeout, d, output)
+        elif agent == "antigravity":
+            text = run_antigravity(prompt, cwd, step, cfg, timeout, d)
         elif agent == "gemini":
             text = run_gemini(prompt, cwd, step, cfg, timeout, d)
         else:
@@ -1540,10 +1644,14 @@ def wire_rules(quiet=False):
     result = {
         # Claude Code resolves @imports live, so edits apply immediately.
         "claude": upsert_block(os.path.join(home, ".claude", "CLAUDE.md"), "@" + RULES_PATH),
-        # Codex and Gemini have no import syntax at the global level: keep a managed copy.
+        # Codex has no import syntax at the global level: keep a managed copy.
         "codex": upsert_block(os.path.join(codex_home, "AGENTS.md"), rules),
-        "gemini": upsert_block(os.path.join(home, ".gemini", "GEMINI.md"), rules),
     }
+    # Antigravity CLI and Gemini CLI both read the global ~/.gemini/GEMINI.md. They are
+    # optional, so only touch it when one of them is installed or the file already exists.
+    gemini_md = os.path.join(home, ".gemini", "GEMINI.md")
+    if os.path.exists(gemini_md) or any(shutil.which(b) for b in OPTIONAL_AGENTS.values()):
+        result["antigravity/gemini"] = upsert_block(gemini_md, rules)
     if not quiet:
         return result
     return None
@@ -1613,11 +1721,23 @@ def cmd_doctor(a):
     installs = {
         "claude": "curl -fsSL https://claude.ai/install.sh | bash",
         "codex": "npm install -g @openai/codex",
-        "gemini": "npm install -g @google/gemini-cli",
     }
-    for b, fix in installs.items():
+    for b, fix in installs.items():  # core agents: required
         rc, txt = check_cmd([b, "--version"])
         add("install:" + b, "ok" if rc == 0 else "fail", txt.splitlines()[0] if txt else "", fix)
+
+    # Optional agents: only a problem if the configuration selects them by default.
+    optional_fix = {"antigravity": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+                    "gemini": "npm install -g @google/gemini-cli（仅企业授权/付费 key 可用）"}
+    for agent, binary in OPTIONAL_AGENTS.items():
+        selected = cfg["research"]["mode"] == agent
+        if shutil.which(binary):
+            rc, txt = check_cmd([binary, "--version"], timeout=30)
+            add("optional:" + agent, "ok", "已安装 %s" % (txt.splitlines()[0] if txt else binary))
+        else:
+            add("optional:" + agent, "fail" if selected else "ok",
+                ("默认研究引擎选了 %s，但未安装" % agent) if selected else "未安装（可选，不影响使用）",
+                optional_fix[agent] if selected else "")
 
     rc, txt = check_cmd(["claude", "auth", "status"])
     add("auth:claude", "ok" if rc == 0 else ("fail" if rc == 1 else "warn"), txt,
@@ -1626,27 +1746,29 @@ def cmd_doctor(a):
     rc, txt = check_cmd(["codex", "login", "status"])
     add("auth:codex", "ok" if rc == 0 else "fail", txt,
         "在终端运行 codex login（远程/无浏览器：codex login --device-auth）")
-    gem_auth = ((load_json(os.path.expanduser("~/.gemini/settings.json"), {}) or {})
-                .get("security", {}).get("auth", {}).get("selectedType"))
-    gem_creds = bool(gem_auth) or bool(os.environ.get("GEMINI_API_KEY")) or \
-        os.path.exists(os.path.expanduser("~/.gemini/oauth_creds.json"))
-    add("auth:gemini", "ok" if gem_creds else "warn",
-        "已配置认证方式：%s" % (gem_auth or "GEMINI_API_KEY / OAuth") if gem_creds else "未发现凭据（--deep 做实测）",
-        "在终端运行 gemini，选择 Sign in with Google")
+    if shutil.which("agy"):
+        # agy keeps its login in the OS keyring and has no status command: only --deep can tell.
+        add("auth:antigravity", "warn", "agy 没有登录状态命令，用 doctor --deep 实测",
+            "在终端运行 agy，选择 Google OAuth 登录")
+    if shutil.which("gemini"):
+        add("note:gemini", "warn", "Gemini CLI 自 2026-06-18 起不再服务个人 Google 账号，只剩企业授权/付费 key 可用",
+            "个人账号请改用 claude（默认）或 antigravity")
 
     key = os.environ.get("GEMINI_API_KEY")
     mode = cfg["research"]["mode"]
     if mode == "deep_research":
         add("research:engine", "ok" if key else "fail", "默认引擎 deep_research" + ("" if key else "，但缺 key"),
-            "在 %s 填入付费层 GEMINI_API_KEY，或把 config.json 的 research.mode 改回 gemini" % ENV_PATH)
+            "在 %s 填入付费层 GEMINI_API_KEY，或把 config.json 的 research.mode 改回 claude" % ENV_PATH)
     else:
-        add("research:engine", "ok", "默认引擎 gemini（Gemini CLI）；Deep Research %s"
-            % ("可按任务选用" if key else "未启用（可选）"),
+        dr = "可按任务选用" if key else "未启用（可选）"
+        add("research:engine", "ok", "默认引擎 %s；Deep Research %s" % (mode, dr),
             "" if key else "如需 Deep Research：在 %s 填入付费层 GEMINI_API_KEY" % ENV_PATH)
 
     for label, path in (("rules:claude", "~/.claude/CLAUDE.md"),
                         ("rules:codex", os.path.join(os.environ.get("CODEX_HOME", "~/.codex"), "AGENTS.md")),
-                        ("rules:gemini", "~/.gemini/GEMINI.md")):
+                        ("rules:antigravity/gemini", "~/.gemini/GEMINI.md")):
+        if label.startswith("rules:antigravity") and not any(shutil.which(b) for b in OPTIONAL_AGENTS.values()):
+            continue
         if not cfg.get("wire_rules", True):
             add(label, "ok", "已禁用（--no-wire）：只在流水线提示词里要求读取 %s" % RULES_PATH)
             continue
@@ -1667,14 +1789,19 @@ def cmd_doctor(a):
         tests = {
             "claude": ["claude", "-p", probe, "--output-format", "json"],
             "codex": ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "-C", tmp, probe],
+            "antigravity": ["agy", "-p", probe, "--output-format", "json"],
             "gemini": ["gemini", "-p", probe, "--output-format", "json", "--skip-trust"],
         }
         for name, cmd in tests.items():
+            if name in OPTIONAL_AGENTS and not shutil.which(OPTIONAL_AGENTS[name]):
+                continue  # optional and not installed
             try:
                 r = subprocess.run(cmd, cwd=tmp, capture_output=True, text=True, timeout=180,
-                                   stdin=subprocess.DEVNULL)
+                                   stdin=subprocess.DEVNULL, env=dict(os.environ, **AGY_ENV))
                 seen = MARKER in (r.stdout or "")
-                add("live:" + name, "ok" if seen else "fail",
+                # A broken optional agent only matters if it is the configured default.
+                bad = "fail" if name in CORE_AGENTS or cfg["research"]["mode"] == name else "warn"
+                add("live:" + name, "ok" if seen else bad,
                     "读到共享规则" if seen else "exit %s: %s" % (r.returncode, tail(r.stdout + r.stderr, 200)),
                     "确认已登录；再运行 sync-rules")
             except (FileNotFoundError, subprocess.TimeoutExpired) as e:
@@ -1960,7 +2087,7 @@ def cmd_unwire(a):
     out({"ok": True, "result": {
         "claude": remove_block(os.path.join(home, ".claude", "CLAUDE.md")),
         "codex": remove_block(os.path.join(codex_home, "AGENTS.md")),
-        "gemini": remove_block(os.path.join(home, ".gemini", "GEMINI.md")),
+        "antigravity/gemini": remove_block(os.path.join(home, ".gemini", "GEMINI.md")),
     }, "note": "只移除了 conductor 管理的区块；%s 未删除" % HOME})
 
 
@@ -2057,8 +2184,8 @@ if __name__ == "__main__":
 <!-- Conductor rules marker: CONDUCTOR-RULES-V1 -->
 Conductor rules marker: CONDUCTOR-RULES-V1
 
-这是所有 agent（OpenClaw、Claude Code、Codex、Gemini CLI）共享的**唯一规则源**，
-路径 `{conductor_home}/AGENTS.md`。修改后运行 `conductor.py sync-rules` 同步给 Codex 与 Gemini
+这是所有 agent（OpenClaw、Claude Code、Codex，以及可选的 Antigravity / Gemini CLI）共享的**唯一规则源**，
+路径 `{conductor_home}/AGENTS.md`。修改后运行 `conductor.py sync-rules` 同步给 Codex（以及已安装的 Antigravity / Gemini CLI）
 （Claude Code 通过 @import 实时读取；每次流水线启动时也会自动同步）。
 
 ## 外脑（共享知识与记忆）
@@ -2118,7 +2245,7 @@ Conductor rules marker: CONDUCTOR-RULES-V1
 ~~~~~markdown
 # 导入外部知识
 
-外脑是 `~/conductor/brain/` 下的一个纯 Markdown 目录。OpenClaw、Claude Code、Codex、Gemini CLI 都从这里读取知识。按资料的类型和数量，选下面一种方式导入。
+外脑是 `~/conductor/brain/` 下的一个纯 Markdown 目录。OpenClaw、Claude Code、Codex、Antigravity CLI 都从这里读取知识。按资料的类型和数量，选下面一种方式导入。
 
 | 你手上的资料 | 推荐方式 | 要不要审核 |
 |---|---|---|
@@ -2170,7 +2297,7 @@ qmd embed                             # 首次运行会下载约 2GB 的本地�
 ```bash
 claude mcp add --scope user qmd -- qmd mcp
 codex mcp add qmd -- qmd mcp
-# Gemini：在 ~/.gemini/settings.json 里加 "mcpServers": {"qmd": {"command": "qmd", "args": ["mcp"]}}
+agy mcp add qmd qmd mcp
 ```
 
 笔记有更新后，运行 `qmd update` 刷新索引。

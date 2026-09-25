@@ -11,7 +11,7 @@ with open(os.path.join(os.environ["HOME"], "claude_calls.jsonl"), "a") as log:
     log.write(json.dumps({"argv": a, "cwd": os.getcwd()}, ensure_ascii=False) + "\n")
 mode = a[a.index("--permission-mode") + 1] if "--permission-mode" in a else "default"
 flag = os.path.join(os.environ["HOME"], "block_once")
-if "Conductor rules marker" in prompt and "本步骤任务" not in prompt:
+if "只回复你的共享规则里" in prompt:
     text = "CONDUCTOR-RULES-V1"
 elif "git commit" in prompt and mode == "acceptEdits" and os.path.exists(flag):
     os.remove(flag); text = "BLOCKED: 要用 Python 还是 Go？"
@@ -27,5 +27,5 @@ elif mode == "acceptEdits":
 elif "经验" in prompt and "最多 5 条" in prompt:
     text = "- [测试] 假 CLI 能跑通流水线（依据：tests）"
 else:
-    text = "结论：" + "内容 " * 200
+    text = "结论：" + "内容 " * 400
 print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": text}, ensure_ascii=False))

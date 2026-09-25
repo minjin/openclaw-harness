@@ -12,14 +12,14 @@ Conductor 版本：{{VERSION}}
 
 **Conductor 是什么**：让你（OpenClaw）充当「前台」的一套多 agent 编排系统。
 
-- 你负责跟用户对话，澄清需求，产出任务简报；用户确认后，按固定流水线把活派给本机的 Gemini CLI、Claude Code、Codex 在后台执行，完成后把结果推回聊天。Gemini Deep Research API 是可选的增强项。
+- 你负责跟用户对话，澄清需求，产出任务简报；用户确认后，按固定流水线把活派给本机的 **Claude Code 和 Codex（核心，必需）** 在后台执行，完成后把结果推回聊天。Antigravity CLI、Gemini CLI、Gemini Deep Research API 都是**可选**增强项。
 - 同时提供一套所有 agent 共用的外脑，放在 `~/conductor/brain`：知识库、经验记忆，以及统一的规则文件 `~/conductor/AGENTS.md`。
 - 流程控制全部由脚本 `conductor.py` 强制执行，不依赖你用的是什么模型。
 
 **安装原则：**
 
 1. **先说后做。** 每个阶段先用一两句话告诉用户接下来要做什么、会改动哪些文件，得到同意后再执行。
-2. **改用户全局配置之前必须征得同意。** 需要改的是 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`、`~/.gemini/GEMINI.md`。脚本只会追加一个带标记的区块，第一次修改前会自动备份为 `*.bak-conductor`。
+2. **改用户全局配置之前必须征得同意。** 需要改的是 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`（以及装了可选 Google agent 时的 `~/.gemini/GEMINI.md`）。脚本只会追加一个带标记的区块，第一次修改前会自动备份为 `*.bak-conductor`。
 3. **不在聊天里收集任何密钥或密码。** 需要密钥时，给用户一条在他自己终端里执行的命令。
 4. **不看退出码判断成功。** 以每个阶段的验证命令输出为准。
 5. **命令和本机版本对不上时**（报「未知参数」之类的错），先运行 `<命令> --help` 核对用法，调整后再执行，并告诉用户你改了什么。
@@ -36,7 +36,7 @@ Conductor 版本：{{VERSION}}
 
 | id | 问题 | 选项 |
 |---|---|---|
-| agents | 要启用哪些执行 agent？（多选） | Claude Code (Recommended) / Codex / Gemini CLI |
+| extras | Claude Code 和 Codex 是必装的核心。要不要额外启用可选的 Google agent？（多选，可都不选） | 都不要 (Recommended) / Antigravity CLI / Gemini CLI（仅企业授权或付费 key） |
 | notify | 任务完成后把通知发到哪里？ | 当前这个聊天 (Recommended) / 暂不通知 |
 
 > 通知走 `openclaw message send`，**只支持外部渠道**（Telegram、Slack、Discord 等）。如果用户是在 TUI 或 Web 控制台里跟你对话，这些界面收不到推送：请推荐「暂不通知」，并告诉用户任务状态可以随时问你。
@@ -44,7 +44,8 @@ Conductor 版本：{{VERSION}}
 
 补充说明：
 
-- **研究步骤默认由 Gemini CLI 执行**。如果用户没选 Gemini CLI，要告诉他：研究类流水线需要 Gemini CLI，或者后面配置 Deep Research API key。
+- **核心只有 Claude Code 和 Codex**：研究默认由 Claude（WebSearch / WebFetch）完成，`second_opinion` 默认让 Claude 和 Codex 对比。只装这两个，所有流水线都能用。
+- **可选的 Google agent** 只在用户想要时安装：Antigravity CLI（`agy`）可作为研究引擎或第二意见；Gemini CLI 自 2026-06-18 起不再服务个人 Google 账号（免费 / Pro / Ultra），只适合有企业授权或付费 API key 的用户。
 - **选了「当前这个聊天」时**，从当前会话上下文里确定渠道名和目标 ID（比如 Telegram 的 chat id），然后用 `openclaw message send --channel <渠道> --target <ID> --message test` 发一条测试消息，确认能送达。如果无法确定，请用户提供，或者先跳过，以后再用 `setup --notify-channel ... --notify-target ...` 补上。
 - **再用一句话问用户的称呼和常用技术栈**（可以跳过），这些信息会写进共享规则的「用户偏好」小节。
 
@@ -59,7 +60,7 @@ uname -s; python3 --version; git --version; node --version; npm --version; openc
 逐项核对：
 
 - **python3 ≥ 3.9 和 git 必须有。** 缺失时告诉用户对应的安装方式：macOS 用 `xcode-select --install` 或 Homebrew；Linux 用系统包管理器。
-- **node ≥ 22 和 npm**：通过 npm 安装 Codex 或 Gemini CLI 时需要。如果缺失，推荐用户用 Homebrew、nvm 或 fnm 安装 Node 22+。
+- **node ≥ 22 和 npm**：通过 npm 安装 Codex 时需要（Antigravity CLI 是独立二进制，不需要 Node）。如果缺失，推荐用户用 Homebrew、nvm 或 fnm 安装 Node 22+。
 - **ripgrep（rg）可选**，装了以后外脑检索更快：`brew install ripgrep` 或 `apt install ripgrep`。
 - **Windows 用户**：建议在 WSL2 里安装整套系统。
 
@@ -67,9 +68,9 @@ uname -s; python3 --version; git --version; node --version; npm --version; openc
 
 ## 3. 安装执行 agent（只装缺的）
 
-先检查哪些已经装好了：`claude --version; codex --version; gemini --version`
+先检查哪些已经装好了：`claude --version; codex --version`（选了可选项的，再加 `agy --version` / `gemini --version`）
 
-然后只安装阶段 1 里用户选中、并且本机还没有的那些：
+**Claude Code 和 Codex 必须安装**；可选项只在阶段 1 里用户选中、并且本机还没有时安装：
 
 ```bash
 # Claude Code（官方原生安装器；也可以用 brew install --cask claude-code）
@@ -78,7 +79,10 @@ curl -fsSL https://claude.ai/install.sh | bash
 # Codex（也可以用 brew install --cask codex）
 npm install -g @openai/codex
 
-# Gemini CLI（也可以用 brew install gemini-cli）
+# 可选：Antigravity CLI（官方安装脚本，装到 ~/.local/bin/agy）
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+
+# 可选：Gemini CLI（仅企业授权 / 付费 key）
 npm install -g @google/gemini-cli
 ```
 
@@ -94,13 +98,14 @@ npm install -g @google/gemini-cli
 |---|---|---|
 | Claude Code | `claude auth login`（或者直接运行 `claude`，按提示登录） | `claude auth status`，exit 0 表示已登录 |
 | Codex | `codex login` | `codex login status`，exit 0 表示已登录 |
-| Gemini CLI | `gemini` → 选择 **Sign in with Google** → 完成后输入 `/quit` | 阶段 9 的 `doctor --deep` 会做实测 |
+| Antigravity CLI（可选） | `agy` → 选择 **Google OAuth** → 浏览器授权（SSH 远程时把页面给出的授权码粘贴回终端）→ 完成后输入 `/quit` | 没有状态命令；阶段 9 的 `doctor --deep` 会做实测 |
+| Gemini CLI（可选） | `gemini` → 按企业授权或 API key 的方式登录 | 阶段 9 的 `doctor --deep` 会做实测 |
 
 **无浏览器或远程服务器的情况：**
 
 - **Claude**：在一台有浏览器的电脑上运行 `claude setup-token`，把得到的 token 以 `CLAUDE_CODE_OAUTH_TOKEN=...` 的形式写入 OpenClaw Gateway 进程的环境变量。
 - **Codex**：用 `codex login --device-auth`（设备码登录）。
-- **Gemini**：也可以用 API key 代替 Google 登录。让用户把 `GEMINI_API_KEY` 写进 `~/conductor/.env`，方法见阶段 7。
+- **Antigravity**：远程会话里 `agy` 会给出网址和授权码输入框，用户在自己电脑的浏览器授权后把授权码粘贴回终端即可。也可以改用 Gemini API key（在 `~/.gemini/antigravity-cli/settings.json` 设 `"modelProvider": "gemini"` 并导出 `GEMINI_API_KEY`）。
 
 注意：OpenClaw 在后台调用这些 CLI 时，用的是**运行 OpenClaw Gateway 的那个系统用户**的登录状态。所以用户必须用同一个系统用户登录。
 
@@ -136,7 +141,7 @@ python3 <SKILL>/scripts/conductor.py pipelines   # 应输出 5 条流水线
 
 先向用户说明，并**征得同意**：
 
-> 接下来会创建 `~/conductor/`，里面包含外脑、任务目录和共享规则。同时会在 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`、`~/.gemini/GEMINI.md` 末尾各追加一个带标记的区块，让三个 CLI 都读取同一份规则。第一次修改前会自动备份，以后可以用 `conductor.py unwire` 一键移除。
+> 接下来会创建 `~/conductor/`，里面包含外脑、任务目录和共享规则。同时会在 `~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`（以及装了可选 Google agent 时的 `~/.gemini/GEMINI.md`） 末尾各追加一个带标记的区块，让三个 CLI 都读取同一份规则。第一次修改前会自动备份，以后可以用 `conductor.py unwire` 一键移除。
 
 - 用户**同意**：
   ```bash
@@ -161,7 +166,7 @@ python3 <SKILL>/scripts/conductor.py sync-rules
 
 先问用户要不要启用。启用前要说明清楚：
 
-- 这一项是**可选的**。不启用的话，研究由 Gemini CLI 联网完成，完全够用。
+- 这一项是**可选的**。不启用的话，研究由 Claude 联网完成，完全够用。
 - Deep Research 更深入，但单次耗时 5–60 分钟，每次约 $2–5，而且需要**付费层**的 API key（在 https://aistudio.google.com/apikey 获取；免费 key 会报 429）。
 - 启用后也**不会自动使用**。只有在单个任务里选择 `deep_research` 引擎，或者在 `~/conductor/config.json` 里把 `research.mode` 改成 `"deep_research"` 作为默认，才会用到它。
 
@@ -206,7 +211,7 @@ python3 <SKILL>/scripts/conductor.py doctor --deep
 
 然后做一次**完整的冒烟测试**，把 skill 第 2 到第 4 节的对话流程走一遍（便宜又快，不花 Deep Research 的钱）。
 
-如果 `live:gemini` 失败（比如免费额度用完，报 429），就改用 `build_review`：先建一个一次性仓库（`git init` + 一个小文件），然后让 Claude 做一个极小的改动，由 Codex 审查。完成后要告诉用户，Gemini 那条测试是没跑的。
+冒烟测试只用核心的 Claude 和 Codex。可选的 Antigravity / Gemini 如果在 `doctor --deep` 里报 `warn`（比如没登录，或额度用完报 429），告诉用户即可，不影响核心功能。
 
 1. `new --pipeline second_opinion --title smoke --set question="用一句话说明什么是 CRDT"`
 2. `render`，把简报给用户看，用 `ask_user` 请他确认
@@ -214,7 +219,7 @@ python3 <SKILL>/scripts/conductor.py doctor --deep
 4. 等待完成通知送达聊天。一般 1 到 3 分钟。
 
    **不要循环轮询。** 如果 5 分钟后还没收到通知，或者没配置通知，就运行一次 `status` 查看状态。任务日志 `log.txt` 里会记录通知是否发出，以及没发出的原因。
-5. 用 `result` 查看结果，确认里面有 Claude 和 Gemini 两方观点的对比。
+5. 用 `result` 查看结果，确认里面有 Claude 和 Codex 两方观点的对比。
 
 通知没有送达时，检查 `~/conductor/config.json` 里的 `notify` 配置，并手动试一下：
 
@@ -232,10 +237,10 @@ openclaw message send --channel <渠道> --target <目标> --message test
 
 - 「帮我研究一下 X」
 - 「研究 X，然后在 ~/code/app 里实现」
-- 「让 Claude 和 Gemini 都说说 X」
+- 「让 Claude 和 Codex 都说说 X」
 - 「导入知识」
 
-我会先问几个问题，把简报给你确认，确认后在后台执行，完成时通知你。研究默认交给 Gemini CLI；想要更深入的 Gemini Deep Research（需要付费 key），直接说「用 Deep Research」即可。
+我会先问几个问题，把简报给你确认，确认后在后台执行，完成时通知你。研究默认交给 Claude；装了可选的 Antigravity CLI 可以说「用 Antigravity 研究」；想要更深入的 Gemini Deep Research（需要付费 key），直接说「用 Deep Research」即可。
 
 **2. 结果在哪里。**
 

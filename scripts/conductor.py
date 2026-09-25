@@ -39,10 +39,12 @@ DR_API = "https://generativelanguage.googleapis.com/v1beta/interactions"
 DEFAULT_CONFIG = {
     "notify": {"channel": "", "target": ""},
     "research": {
-        # Default engine for research steps: "gemini" (Gemini CLI web research, no extra key)
-        # or "deep_research" (Gemini Deep Research API; paid-tier GEMINI_API_KEY required).
+        # Default engine for research steps. Core: "claude" (Claude Code WebSearch/WebFetch).
+        # Optional: "antigravity" (Antigravity CLI `agy`), "gemini" (Gemini CLI; only for
+        # Code Assist enterprise licenses / paid API keys since 2026-06-18) and
+        # "deep_research" (Gemini Deep Research API, paid-tier GEMINI_API_KEY).
         # A job can override it with the research_engine slot.
-        "mode": "gemini",
+        "mode": "claude",
         "agent": "deep-research-preview-04-2026",
         "max_agent": "deep-research-max-preview-04-2026",
         "poll_seconds": 20,
@@ -65,13 +67,20 @@ DEFAULT_CONFIG = {
     ],
     "claude_args": [],
     "codex_args": [],
+    "antigravity_args": [],
     "gemini_args": [],
 }
+
+# Claude Code and Codex are the core agents; the Google agents are optional add-ons.
+CORE_AGENTS = ("claude", "codex")
+OPTIONAL_AGENTS = {"antigravity": "agy", "gemini": "gemini"}
+RESEARCH_ENGINES = ("claude", "antigravity", "gemini", "deep_research")
 
 ACTIVE_STATES = ("running",)
 AGENT_LABELS = {
     "claude": "Claude Code",
     "codex": "Codex",
+    "antigravity": "Antigravity CLI",
     "gemini": "Gemini CLI",
 }
 
@@ -245,11 +254,25 @@ def job_ctx(d, job, slots):
     return ctx
 
 
+def resolve_agent(step, slots):
+    """A step's agent is fixed ("claude") or chosen by a slot ("$second_agent")."""
+    agent = step["agent"]
+    if agent.startswith("$"):
+        agent = (slots.get(agent[1:]) or step.get("agent_default") or "codex").strip()
+    return agent
+
+
 def research_engine(slots, cfg):
-    engine = (slots.get("research_engine") or cfg["research"]["mode"] or "gemini").strip()
-    if engine not in ("gemini", "deep_research"):
-        raise StepError("未知研究引擎 %r（可选 gemini / deep_research）" % engine)
+    engine = (slots.get("research_engine") or cfg["research"]["mode"] or "claude").strip()
+    if engine not in RESEARCH_ENGINES:
+        raise StepError("未知研究引擎 %r（可选 %s）" % (engine, " / ".join(RESEARCH_ENGINES)))
     return engine
+
+
+def optional_missing(agent):
+    """Hint text if an optional agent is selected but its CLI is not installed."""
+    binary = OPTIONAL_AGENTS.get(agent)
+    return binary and not shutil.which(binary)
 
 
 def research_label(slots):
@@ -260,7 +283,11 @@ def research_label(slots):
         if not os.environ.get("GEMINI_API_KEY"):
             label += "（⚠ 未配置 GEMINI_API_KEY，执行会失败）"
         return label
-    return "Gemini CLI（联网研究）"
+    label = {"claude": "Claude Code（联网研究）", "antigravity": "Antigravity CLI（联网研究，可选）",
+             "gemini": "Gemini CLI（联网研究，可选）"}[engine]
+    if optional_missing(engine):
+        label += "（⚠ 未安装 %s，执行会失败）" % OPTIONAL_AGENTS[engine]
+    return label
 
 
 def render_brief(d, job, pdef):
@@ -280,7 +307,13 @@ def render_brief(d, job, pdef):
         if not when_ok(step, slots):
             continue
         n += 1
-        who = research_label(slots) if step["agent"] == "research" else AGENT_LABELS[step["agent"]]
+        agent = resolve_agent(step, slots)
+        if agent == "research":
+            who = research_label(slots)
+        else:
+            who = AGENT_LABELS.get(agent, agent)
+            if optional_missing(agent):
+                who += "（⚠ 未安装 %s，执行会失败）" % OPTIONAL_AGENTS[agent]
         lines.append("%d. **%s** → %s：%s" % (n, step["id"], who, step["summary"]))
     if job.get("answers"):
         lines += ["", "## 执行中补充的回答", ""]
@@ -344,10 +377,12 @@ def agent_env(cwd):
     return env
 
 
-def run_cli(cmd, cwd, timeout, d, sid, stdin_text=None):
+def run_cli(cmd, cwd, timeout, d, sid, stdin_text=None, extra_env=None):
     log(d, "exec %s %s (cwd=%s)" % (cmd[0], cmd[1] if len(cmd) > 1 and cmd[1] != "-p" else "-p", cwd))
     try:
-        r = subprocess.run(cmd, cwd=cwd, input=stdin_text, capture_output=True, text=True, env=agent_env(cwd),
+        env = agent_env(cwd)
+        env.update(extra_env or {})
+        r = subprocess.run(cmd, cwd=cwd, input=stdin_text, capture_output=True, text=True, env=env,
                            timeout=timeout, stdin=None if stdin_text is not None else subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         raise StepError("超时（%ds）" % timeout)
@@ -423,7 +458,21 @@ def run_codex(prompt, cwd, step, cfg, timeout, d, output):
     return text
 
 
+AGY_ENV = {"AGY_CLI_DISABLE_AUTO_UPDATE": "true"}  # never self-update in the middle of a job
+
+
+def agy_error(r, data):
+    """Best error text from an agy run: JSON `error`, else the AGY_ERROR stderr line."""
+    err = (data or {}).get("error")
+    if not err:
+        err = next((l for l in (r.stderr or "").splitlines() if l.startswith("AGY_ERROR:")), "")
+    if "authentication" in str(err).lower() or "Authentication required" in (r.stderr or ""):
+        err = "%s（未登录：在终端运行 agy，选择 Google OAuth 登录）" % err
+    return str(err) or tail(r.stderr)
+
+
 def run_gemini(prompt, cwd, step, cfg, timeout, d):
+    """Gemini CLI (optional): still served for Code Assist enterprise licenses and paid API keys."""
     cmd = ["gemini", "-p", prompt, "--output-format", "json", "--skip-trust",
            "--include-directories", ",".join([BRAIN, d])]
     if step.get("write"):
@@ -432,9 +481,28 @@ def run_gemini(prompt, cwd, step, cfg, timeout, d):
     r = run_cli(cmd, cwd, timeout, d, step["id"])
     data = last_json(r.stdout)
     if not data:
-        raise StepError("Gemini 无 JSON 输出（exit %s）：%s" % (r.returncode, tail(r.stderr)))
+        raise StepError("Gemini CLI 无 JSON 输出（exit %s）：%s" % (r.returncode, tail(r.stderr)))
     if data.get("error"):
-        raise StepError("Gemini 报错：%s" % tail(json.dumps(data["error"], ensure_ascii=False)))
+        raise StepError("Gemini CLI 报错：%s（个人 Google 账号自 2026-06-18 起已不可用，可改用 antigravity 或 claude）"
+                        % tail(json.dumps(data["error"], ensure_ascii=False)))
+    return data.get("response") or ""
+
+
+def run_antigravity(prompt, cwd, step, cfg, timeout, d):
+    cmd = ["agy", "-p", prompt, "--output-format", "json"]
+    if step.get("write"):
+        cmd += ["--mode", "accept-edits"]
+    for extra in (BRAIN, d):
+        if extra != cwd:
+            cmd += ["--add-dir", extra]
+    cmd += cfg["antigravity_args"]
+    r = run_cli(cmd, cwd, timeout, d, step["id"], extra_env=AGY_ENV)
+    data = last_json(r.stdout)
+    if not data:
+        raise StepError("Antigravity 无 JSON 输出（exit %s）：%s" % (r.returncode, tail(r.stderr)))
+    if data.get("status") != "SUCCESS" or r.returncode != 0:
+        raise StepError("Antigravity 失败（status=%s, exit %s）：%s"
+                        % (data.get("status"), r.returncode, agy_error(r, data)))
     return data.get("response") or ""
 
 
@@ -522,13 +590,24 @@ def run_research(d, job, step, slots, cfg, timeout):
     if engine == "deep_research":
         if not os.environ.get("GEMINI_API_KEY"):
             raise StepError("选择了 deep_research 但未配置 GEMINI_API_KEY（见 %s）；"
-                            "可把 research_engine 改为 gemini 后重试" % ENV_PATH)
+                            "可把 research_engine 改为 claude 后重试" % ENV_PATH)
         return deep_research(d, job, step, task, slots, cfg, timeout)
+    if optional_missing(engine):
+        raise StepError("研究引擎 %s 需要可选组件 %s，但本机未安装；可把 research_engine 改为 claude"
+                        % (engine, OPTIONAL_AGENTS[engine]))
     depth = "请尽可能全面深入，至少查阅 10 个相互独立的来源。" if slots.get("depth") == "max" else \
         "请查阅多个相互独立的来源。"
-    prompt = task + "\n\n请使用网络搜索（google_web_search）与网页抓取工具完成研究。" + depth + \
-        "每个关键论断都要附来源链接。只输出报告正文。"
-    return run_gemini(prompt, d, step, cfg, timeout, d)
+    tools = {"claude": "WebSearch 与 WebFetch", "antigravity": "search_web 与 read_url_content",
+             "gemini": "google_web_search 与 web_fetch"}[engine]
+    rules = read_text(RULES_PATH).strip()
+    prompt = ("以下是所有 agent 共享的规则，必须遵守：\n<shared-rules>\n%s\n</shared-rules>\n\n" % rules if rules else "") \
+        + task + "\n\n请使用网络搜索与网页读取工具（%s）完成研究。%s每个关键论断都要附来源链接。只输出报告正文。" \
+        % (tools, depth)
+    if engine == "claude":
+        return run_claude(prompt, d, dict(step, allowed_tools=["WebSearch", "WebFetch"]), cfg, timeout, d, [])
+    if engine == "gemini":
+        return run_gemini(prompt, d, step, cfg, timeout, d)
+    return run_antigravity(prompt, d, step, cfg, timeout, d)
 
 
 # ---------------------------------------------------------------- worker
@@ -641,7 +720,9 @@ def source_dirs(slots):
 
 
 def run_step(d, job, pdef, step, slots, cfg):
-    agent = step["agent"]
+    agent = resolve_agent(step, slots)
+    if optional_missing(agent):
+        raise StepError("步骤 %s 需要可选组件 %s，但本机未安装" % (step["id"], OPTIONAL_AGENTS[agent]))
     timeout = cfg["timeouts"]["research" if agent == "research" else "default"]
     cwd = job.get("workdir", d) if step.get("in_workdir") else d
     output = os.path.join(d, step["output"])
@@ -655,6 +736,8 @@ def run_step(d, job, pdef, step, slots, cfg):
             text = run_claude(prompt, cwd, step, cfg, timeout, d, extra)
         elif agent == "codex":
             text = run_codex(prompt, cwd, step, cfg, timeout, d, output)
+        elif agent == "antigravity":
+            text = run_antigravity(prompt, cwd, step, cfg, timeout, d)
         elif agent == "gemini":
             text = run_gemini(prompt, cwd, step, cfg, timeout, d)
         else:
@@ -762,10 +845,14 @@ def wire_rules(quiet=False):
     result = {
         # Claude Code resolves @imports live, so edits apply immediately.
         "claude": upsert_block(os.path.join(home, ".claude", "CLAUDE.md"), "@" + RULES_PATH),
-        # Codex and Gemini have no import syntax at the global level: keep a managed copy.
+        # Codex has no import syntax at the global level: keep a managed copy.
         "codex": upsert_block(os.path.join(codex_home, "AGENTS.md"), rules),
-        "gemini": upsert_block(os.path.join(home, ".gemini", "GEMINI.md"), rules),
     }
+    # Antigravity CLI and Gemini CLI both read the global ~/.gemini/GEMINI.md. They are
+    # optional, so only touch it when one of them is installed or the file already exists.
+    gemini_md = os.path.join(home, ".gemini", "GEMINI.md")
+    if os.path.exists(gemini_md) or any(shutil.which(b) for b in OPTIONAL_AGENTS.values()):
+        result["antigravity/gemini"] = upsert_block(gemini_md, rules)
     if not quiet:
         return result
     return None
@@ -835,11 +922,23 @@ def cmd_doctor(a):
     installs = {
         "claude": "curl -fsSL https://claude.ai/install.sh | bash",
         "codex": "npm install -g @openai/codex",
-        "gemini": "npm install -g @google/gemini-cli",
     }
-    for b, fix in installs.items():
+    for b, fix in installs.items():  # core agents: required
         rc, txt = check_cmd([b, "--version"])
         add("install:" + b, "ok" if rc == 0 else "fail", txt.splitlines()[0] if txt else "", fix)
+
+    # Optional agents: only a problem if the configuration selects them by default.
+    optional_fix = {"antigravity": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+                    "gemini": "npm install -g @google/gemini-cli（仅企业授权/付费 key 可用）"}
+    for agent, binary in OPTIONAL_AGENTS.items():
+        selected = cfg["research"]["mode"] == agent
+        if shutil.which(binary):
+            rc, txt = check_cmd([binary, "--version"], timeout=30)
+            add("optional:" + agent, "ok", "已安装 %s" % (txt.splitlines()[0] if txt else binary))
+        else:
+            add("optional:" + agent, "fail" if selected else "ok",
+                ("默认研究引擎选了 %s，但未安装" % agent) if selected else "未安装（可选，不影响使用）",
+                optional_fix[agent] if selected else "")
 
     rc, txt = check_cmd(["claude", "auth", "status"])
     add("auth:claude", "ok" if rc == 0 else ("fail" if rc == 1 else "warn"), txt,
@@ -848,27 +947,29 @@ def cmd_doctor(a):
     rc, txt = check_cmd(["codex", "login", "status"])
     add("auth:codex", "ok" if rc == 0 else "fail", txt,
         "在终端运行 codex login（远程/无浏览器：codex login --device-auth）")
-    gem_auth = ((load_json(os.path.expanduser("~/.gemini/settings.json"), {}) or {})
-                .get("security", {}).get("auth", {}).get("selectedType"))
-    gem_creds = bool(gem_auth) or bool(os.environ.get("GEMINI_API_KEY")) or \
-        os.path.exists(os.path.expanduser("~/.gemini/oauth_creds.json"))
-    add("auth:gemini", "ok" if gem_creds else "warn",
-        "已配置认证方式：%s" % (gem_auth or "GEMINI_API_KEY / OAuth") if gem_creds else "未发现凭据（--deep 做实测）",
-        "在终端运行 gemini，选择 Sign in with Google")
+    if shutil.which("agy"):
+        # agy keeps its login in the OS keyring and has no status command: only --deep can tell.
+        add("auth:antigravity", "warn", "agy 没有登录状态命令，用 doctor --deep 实测",
+            "在终端运行 agy，选择 Google OAuth 登录")
+    if shutil.which("gemini"):
+        add("note:gemini", "warn", "Gemini CLI 自 2026-06-18 起不再服务个人 Google 账号，只剩企业授权/付费 key 可用",
+            "个人账号请改用 claude（默认）或 antigravity")
 
     key = os.environ.get("GEMINI_API_KEY")
     mode = cfg["research"]["mode"]
     if mode == "deep_research":
         add("research:engine", "ok" if key else "fail", "默认引擎 deep_research" + ("" if key else "，但缺 key"),
-            "在 %s 填入付费层 GEMINI_API_KEY，或把 config.json 的 research.mode 改回 gemini" % ENV_PATH)
+            "在 %s 填入付费层 GEMINI_API_KEY，或把 config.json 的 research.mode 改回 claude" % ENV_PATH)
     else:
-        add("research:engine", "ok", "默认引擎 gemini（Gemini CLI）；Deep Research %s"
-            % ("可按任务选用" if key else "未启用（可选）"),
+        dr = "可按任务选用" if key else "未启用（可选）"
+        add("research:engine", "ok", "默认引擎 %s；Deep Research %s" % (mode, dr),
             "" if key else "如需 Deep Research：在 %s 填入付费层 GEMINI_API_KEY" % ENV_PATH)
 
     for label, path in (("rules:claude", "~/.claude/CLAUDE.md"),
                         ("rules:codex", os.path.join(os.environ.get("CODEX_HOME", "~/.codex"), "AGENTS.md")),
-                        ("rules:gemini", "~/.gemini/GEMINI.md")):
+                        ("rules:antigravity/gemini", "~/.gemini/GEMINI.md")):
+        if label.startswith("rules:antigravity") and not any(shutil.which(b) for b in OPTIONAL_AGENTS.values()):
+            continue
         if not cfg.get("wire_rules", True):
             add(label, "ok", "已禁用（--no-wire）：只在流水线提示词里要求读取 %s" % RULES_PATH)
             continue
@@ -889,14 +990,19 @@ def cmd_doctor(a):
         tests = {
             "claude": ["claude", "-p", probe, "--output-format", "json"],
             "codex": ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "-C", tmp, probe],
+            "antigravity": ["agy", "-p", probe, "--output-format", "json"],
             "gemini": ["gemini", "-p", probe, "--output-format", "json", "--skip-trust"],
         }
         for name, cmd in tests.items():
+            if name in OPTIONAL_AGENTS and not shutil.which(OPTIONAL_AGENTS[name]):
+                continue  # optional and not installed
             try:
                 r = subprocess.run(cmd, cwd=tmp, capture_output=True, text=True, timeout=180,
-                                   stdin=subprocess.DEVNULL)
+                                   stdin=subprocess.DEVNULL, env=dict(os.environ, **AGY_ENV))
                 seen = MARKER in (r.stdout or "")
-                add("live:" + name, "ok" if seen else "fail",
+                # A broken optional agent only matters if it is the configured default.
+                bad = "fail" if name in CORE_AGENTS or cfg["research"]["mode"] == name else "warn"
+                add("live:" + name, "ok" if seen else bad,
                     "读到共享规则" if seen else "exit %s: %s" % (r.returncode, tail(r.stdout + r.stderr, 200)),
                     "确认已登录；再运行 sync-rules")
             except (FileNotFoundError, subprocess.TimeoutExpired) as e:
@@ -1182,7 +1288,7 @@ def cmd_unwire(a):
     out({"ok": True, "result": {
         "claude": remove_block(os.path.join(home, ".claude", "CLAUDE.md")),
         "codex": remove_block(os.path.join(codex_home, "AGENTS.md")),
-        "gemini": remove_block(os.path.join(home, ".gemini", "GEMINI.md")),
+        "antigravity/gemini": remove_block(os.path.join(home, ".gemini", "GEMINI.md")),
     }, "note": "只移除了 conductor 管理的区块；%s 未删除" % HOME})
 
 

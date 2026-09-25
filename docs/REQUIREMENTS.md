@@ -5,7 +5,7 @@
 
 ## 1. 背景与问题
 
-越来越多的人本机同时装了好几个编码 / 研究 agent：Claude Code、OpenAI Codex CLI、Gemini CLI。它们各有所长，但用起来是割裂的：
+越来越多的人本机同时装了好几个编码 / 研究 agent：Claude Code、OpenAI Codex CLI、Antigravity CLI（Google，Gemini CLI 的继任者）。它们各有所长，但用起来是割裂的：
 
 1. **要人工串接。** 常见的工作流是「先研究 → 再实现 → 再找另一个模型审查」。现在只能人手把上一个 agent 的输出复制给下一个，换窗口、贴上下文、盯进度。
 2. **没有统一入口。** 用户想在手机上（Telegram 等）说一句需求就把活派出去，而不是守在终端前。
@@ -20,7 +20,7 @@ Conductor 是一个 **OpenClaw skill**，让 OpenClaw 成为多 agent 编排的�
 
 - **G1 澄清需求**：把用户的一句话需求，通过追问补全成一份结构化的任务简报。
 - **G2 确认后才执行**：简报必须给用户看过、用户明确同意，才开始花钱花时间。
-- **G3 固定流水线分派**：按预先定义好的流程，把各步骤派给指定的 agent（Gemini 研究、Claude 实现、Codex 审查等），在后台异步执行。
+- **G3 固定流水线分派**：按预先定义好的流程，把各步骤派给指定的 agent（Claude 研究与实现、Codex 审查；可选 Antigravity / Gemini 等），在后台异步执行。
 - **G4 主动回报**：完成、受阻（需要用户回答问题）、失败时主动通知；受阻时用户回答后能续跑。
 - **G5 共享外脑**：所有 agent 共用一份规则、一个知识库、一份经验记忆。
 - **G6 导入外部知识**：用户能方便地把文件、网页、已有笔记库导入外脑。
@@ -37,14 +37,14 @@ Conductor 是一个 **OpenClaw skill**，让 OpenClaw 成为多 agent 编排的�
 
 ## 4. 用户与场景
 
-**目标用户**：已经在用 OpenClaw，并且本机至少装了 Claude Code、Codex、Gemini CLI 其中之一的个人开发者或研究者。
+**目标用户**：已经在用 OpenClaw，并且本机装了 Claude Code 和 Codex 的个人开发者或研究者（可选再装 Antigravity CLI / Gemini CLI）。
 
 | 场景 | 用户说 | 期望结果 |
 |---|---|---|
 | S1 深度研究 | 「帮我研究一下 X」 | 追问用途和范围 → 确认 → 联网研究 → 一份带来源的报告和面向用途的摘要 |
 | S2 研究后实现 | 「研究 X，然后在 ~/code/app 里实现」 | 研究 → Claude 在隔离分支实现并提交 → Codex 审查 → 汇总验收情况 |
 | S3 直接实现 | 「在 ~/code/app 里加个 Y 功能」 | Claude 实现 → Codex 审查 → 汇总 |
-| S4 第二意见 | 「让 Claude 和 Gemini 都说说 X」 | 两个模型各自独立作答 → 对比共识和分歧 → 综合建议 |
+| S4 第二意见 | 「让 Claude 和 Codex 都说说 X」（可选换成 Antigravity / Gemini） | 两个模型各自独立作答 → 对比共识和分歧 → 综合建议 |
 | S5 导入知识 | 「导入知识，主题是 Z」+ 文件或 URL | 整理成带出处的笔记 → 用户审核 → 入库外脑 |
 | S6 受阻续跑 | （后台任务中 agent 缺信息） | 用户收到问题 → 回答 → 任务从受阻的那一步继续 |
 | S7 安装 | 把 INSTALL.md 发给 OpenClaw | 在引导下装好 CLI、登录、初始化外脑、跑通冒烟测试 |
@@ -69,7 +69,7 @@ Conductor 是一个 **OpenClaw skill**，让 OpenClaw 成为多 agent 编排的�
 - **FR-8** 每一步的成败**以产物为准**，不看退出码：产物为空或过短、要求改动代码却没有改动、要求生成笔记却没有生成，都判为失败。
 - **FR-9** 改代码的步骤在**隔离的 git worktree 分支**（`conductor/<任务号>`）上进行，不切换、不改动用户当前分支，不 merge，不 push。目标是新项目时，自动建一个新仓库。
 - **FR-10** 步骤可以按条件跳过（例如用户不要 Codex 审查）。
-- **FR-11** 研究步骤**默认使用 Gemini CLI 联网研究**；**Gemini Deep Research API 是可选项**，可以按任务选择，也可以设为默认。选择了 Deep Research 但没有 key 时，要明确报错，不能静默降级。
+- **FR-11** **核心只有 Claude Code 和 Codex**：只装这两个，所有流水线都能用。研究步骤**默认使用 Claude 联网研究**（WebSearch / WebFetch），`second_opinion` 默认 Claude 对比 Codex。**Antigravity CLI、Gemini CLI 是可选执行 agent**（可作研究引擎或第二意见），**Gemini Deep Research API 也是可选项**，可以按任务选择，也可以设为默认。选择了 Deep Research 但没有 key 时，要明确报错，不能静默降级。
 - **FR-12** Deep Research 任务可以跨进程续跑：续跑时继续轮询已创建的研究任务，不能重新创建、重复计费。
 - **FR-13** 单步可设置超时（研究默认 60 分钟，其它默认 30 分钟）。任务可以取消，取消时同时取消远端的研究任务。
 
@@ -81,7 +81,7 @@ Conductor 是一个 **OpenClaw skill**，让 OpenClaw 成为多 agent 编排的�
 
 ### 5.5 共享外脑（G5）
 
-- **FR-17** **唯一规则源**：`~/conductor/AGENTS.md`。经用户同意后，接入三个 CLI 的全局规则（Claude 用 `@import`，Codex 和 Gemini 用托管副本区块）。用户拒绝时（`--no-wire`），这个选择要**持久记住**，任何后续操作都不能再写全局文件。
+- **FR-17** **唯一规则源**：`~/conductor/AGENTS.md`。经用户同意后，接入三个 CLI 的全局规则（Claude 用 `@import`，Codex 以及已安装的 Antigravity / Gemini 用托管副本区块）。用户拒绝时（`--no-wire`），这个选择要**持久记住**，任何后续操作都不能再写全局文件。
 - **FR-18** 不管有没有接入全局规则，每一步的提示词都要**内联**共享规则，确保执行 agent 一定能拿到。
 - **FR-19** 外脑目录包括：`knowledge/`（已审核知识）、`research/`（已入库报告）、`memory/lessons.md`（经验记忆）、`inbox/`（待审区）。
 - **FR-20** 执行 agent 对外脑**只读**。新知识和经验先进待审区，**用户明确同意后**才入库（promote）。
@@ -119,7 +119,8 @@ Conductor 是一个 **OpenClaw skill**，让 OpenClaw 成为多 agent 编排的�
 ## 7. 约束与假设
 
 - 各 CLI 的登录状态**跟着系统用户走**。OpenClaw gateway 以哪个用户运行，就用哪个用户的登录。
-- Claude Code、Codex、Gemini CLI 都支持无头模式（`claude -p`、`codex exec`、`gemini -p`），并能输出机器可读的结果。
+- Claude Code、Codex（核心）以及可选的 Antigravity CLI、Gemini CLI 都支持无头模式（`claude -p`、`codex exec`、`agy -p`、`gemini -p`），并能输出机器可读的结果。
+- Gemini CLI 自 2026-06-18 起不再服务个人 Google 账号（免费 / Pro / Ultra），只保留给企业授权和付费 API key；因此 Google 系 agent（Antigravity / Gemini）只作为可选项，核心依赖 Claude Code 和 Codex。
 - Gemini Deep Research 只能通过 Gemini API 的 Interactions API 调用（预览阶段，需要付费层 key）。Gemini CLI 本身没有这个能力。
 - 无头模式下没有人能批准权限请求，所以每一步能用的工具必须**事先列明**。
 

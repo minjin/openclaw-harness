@@ -84,12 +84,24 @@
     },
     "research_engine": {
       "header": "研究引擎",
-      "question": "研究交给谁？gemini = Gemini CLI 联网研究（默认，不需额外 key）；deep_research = Gemini Deep Research API（更深入，需付费 key，约 $2–5/次，耗时 5–60 分钟）",
+      "question": "研究交给谁？claude = Claude Code 联网研究（默认）；antigravity = Antigravity CLI（可选，需装 agy）；gemini = Gemini CLI（可选，仅企业授权/付费 key）；deep_research = Gemini Deep Research API（可选，最深入，需付费 key，约 $2–5/次，5–60 分钟）",
       "options": [
-        "gemini",
-        "deep_research"
+        "claude",
+        "antigravity",
+        "deep_research",
+        "gemini"
       ],
       "default": ""
+    },
+    "second_agent": {
+      "header": "第二意见",
+      "question": "和 Claude 对比的另一个模型用哪个？",
+      "options": [
+        "codex",
+        "antigravity",
+        "gemini"
+      ],
+      "default": "codex"
     }
   },
   "pipelines": {
@@ -112,7 +124,7 @@
           "agent": "research",
           "output": "report.md",
           "min_bytes": 1500,
-          "summary": "联网研究（默认 Gemini CLI；可选 Deep Research API），产出带来源的报告",
+          "summary": "联网研究（默认 Claude；可选 Antigravity / Gemini / Deep Research），产出带来源的报告",
           "task": "研究问题：{question}\n研究用途：{purpose}\n范围限定：{scope}\n已知信息：{known_context}\n\n输出要求：用{language}撰写 Markdown 研究报告。开头是「结论摘要」（不超过 10 条），然后分节论证；每个关键论断都附来源链接；最后列出「不确定点与待验证事项」。"
         },
         {
@@ -161,7 +173,7 @@
           "agent": "research",
           "output": "report.md",
           "min_bytes": 1500,
-          "summary": "联网研究（默认 Gemini CLI；可选 Deep Research API），产出带来源的报告",
+          "summary": "联网研究（默认 Claude；可选 Antigravity / Gemini / Deep Research），产出带来源的报告",
           "task": "研究问题：{question}\n研究将用于完成：{goal}\n约束：{constraints}\n范围限定：{scope}\n已知信息：{known_context}\n\n输出要求：用{language}撰写 Markdown 研究报告。开头是「结论摘要」（不超过 10 条），重点给出可落地的实现建议与取舍；每个关键论断都附来源链接；最后列出「不确定点与待验证事项」。"
         },
         {
@@ -281,11 +293,12 @@
       ]
     },
     "second_opinion": {
-      "description": "Claude 与 Gemini 独立作答，再对比出综合结论",
+      "description": "Claude 与另一个模型（默认 Codex，可选 Antigravity / Gemini）独立作答，再对比出综合结论",
       "required": [
         "question"
       ],
       "optional": [
+        "second_agent",
         "known_context",
         "language"
       ],
@@ -298,11 +311,12 @@
           "task": "独立回答问题：{question}\n已知信息：{known_context}\n用{language}给出：结论、理由、置信度（高/中/低）与主要不确定点。"
         },
         {
-          "id": "answer_gemini",
-          "agent": "gemini",
-          "output": "gemini.md",
-          "summary": "Gemini 独立作答",
-          "task": "独立回答问题：{question}\n已知信息：{known_context}\n用{language}给出：结论、理由、置信度（高/中/低）与主要不确定点。"
+          "id": "answer_second",
+          "agent": "$second_agent",
+          "output": "second.md",
+          "summary": "第二个模型独立作答",
+          "task": "独立回答问题：{question}\n已知信息：{known_context}\n用{language}给出：结论、理由、置信度（高/中/低）与主要不确定点。",
+          "agent_default": "codex"
         },
         {
           "id": "compare",
@@ -310,10 +324,10 @@
           "output": "result.md",
           "inputs": [
             "claude.md",
-            "gemini.md"
+            "second.md"
           ],
           "summary": "对比两份回答，给出综合结论",
-          "task": "对比两份独立回答（claude.md 与 gemini.md）：共识；分歧（逐条说明哪边更有道理及原因）；综合建议与置信度。用{language}。"
+          "task": "对比两份独立回答（claude.md 与 second.md）：共识；分歧（逐条说明哪边更有道理及原因）；综合建议与置信度。用{language}。"
         }
       ]
     },
